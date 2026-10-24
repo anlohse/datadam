@@ -1,0 +1,67 @@
+=== datadam (big: 6000000 keys x 512 B, memory limit 1g)
+  load (first): loaded=6000000 errors=0 seconds=52.3 first_error=''
+  after_load: memory 546.1MiB, disk 4486 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       233540.90    233540.90         0.00         7.12854         0.38300         1.99900         3.43900    126534.99 
+  read-uniform Totals     233540.90    233540.90         0.00         7.12854         0.38300         1.99900         3.43900    126534.99 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       264504.80    264504.80         0.00         7.96273         0.37500         1.43100         2.12700    143353.68 
+  read-gaussian Totals     264504.80    264504.80         0.00         7.96273         0.37500         1.43100         2.12700    143353.68 
+  load (mixed-gaussian): loaded=6000000 errors=0 seconds=42.6 first_error=''
+  mixed-gaussian Sets        42853.10          ---          ---         3.93062         0.35100         2.04700         3.83900     23434.38 
+  mixed-gaussian Gets       171410.04    171410.04         0.00         5.45261         0.38300         2.22300         4.51100     92899.10 
+  mixed-gaussian Totals     214263.14    171410.04         0.00         5.14821         0.38300         2.19100         4.38300    116333.48 
+  load (mixed-gaussian-p16): loaded=6000000 errors=0 seconds=46.2 first_error=''
+  mixed-gaussian-p16 Sets        50008.75          ---          ---         6.40112         3.91900        29.05500       102.91100     27347.48 
+  mixed-gaussian-p16 Gets       200031.47    200031.47         0.00         6.39534         3.91900        28.92700       102.39900    108411.06 
+  mixed-gaussian-p16 Totals     250040.22    200031.47         0.00         6.39649         3.91900        28.92700       102.39900    135758.54 
+  load (write-uniform): loaded=6000000 errors=0 seconds=32.0 first_error=''
+  write-uniform Sets       285366.91          ---          ---         7.38060         0.34300         0.67900         3.85500    156008.35 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     285366.91         0.00         0.00         7.38060         0.34300         0.67900         3.85500    156008.35 
+  end: memory 539.2MiB, disk 3275 MB
+=== redis (big: 6000000 keys x 512 B, memory limit 1g)
+  load (first): loaded=1330979 errors=4669021 seconds=6.7 first_error="OOM command not allowed when used memory > 'maxmemory'."
+  after_load: memory 914.6MiB, disk 683 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       467285.94    104085.12    363200.83         4.50751         0.20700         0.47100         0.78300     70515.97 
+  read-uniform Totals     467285.94    104085.12    363200.83         4.50751         0.20700         0.47100         0.78300     70515.97 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       449770.79     99700.57    350070.22         4.68302         0.20700         0.48700         0.84700     67701.78 
+  read-gaussian Totals     449770.79     99700.57    350070.22         4.68302         0.20700         0.48700         0.84700     67701.78 
+  load (mixed-gaussian): loaded=1330968 errors=4669032 seconds=6.4 first_error="OOM command not allowed when used memory > 'maxmemory'."
+  mixed-gaussian Sets        50272.13          ---          ---         9.77271         0.36700         0.92700         1.21500     30093.49 
+  mixed-gaussian Gets       201085.52     44265.87    156819.65         7.97640         0.36700         0.92700         1.21500     30113.07 
+  mixed-gaussian Totals     251357.65     44265.87    156819.65         8.33567         0.36700         0.92700         1.21500     60206.56 
+  load (mixed-gaussian-p16): loaded=1330961 errors=4669039 seconds=6.6 first_error="OOM command not allowed when used memory > 'maxmemory'."
+  mixed-gaussian-p16 Sets       136318.35          ---          ---         2.72739         2.23900         4.35100         5.40700     81601.69 
+  mixed-gaussian-p16 Gets       545270.20    120783.47    424486.73         2.76426         2.23900         4.35100         5.37500     82033.47 
+  mixed-gaussian-p16 Totals     681588.55    120783.47    424486.73         2.75689         2.23900         4.35100         5.37500    163635.16 
+  load (write-uniform): loaded=1330952 errors=4669048 seconds=6.4 first_error="OOM command not allowed when used memory > 'maxmemory'."
+  write-uniform Sets       130598.72          ---          ---        15.52339         0.70300         1.75100         2.33500     78156.99 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     130598.72         0.00         0.00        15.52339         0.70300         1.75100         2.33500     78156.99 
+  end: memory 915.8MiB, disk 687 MB
+=== kvrocks (big: 6000000 keys x 512 B, memory limit 1g)
+  load (first): loaded=6000000 errors=0 seconds=45.4 first_error=''
+  after_load: memory 140.2MiB, disk 6372 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       212431.54    212431.54         0.00         9.91460         0.47900         1.51900         2.17500    115097.74 
+  read-uniform Totals     212431.54    212431.54         0.00         9.91460         0.47900         1.51900         2.17500    115097.74 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       224811.70    224811.70         0.00         9.32389         0.44700         1.65500         2.22300    121841.22 
+  read-gaussian Totals     224811.70    224811.70         0.00         9.32389         0.44700         1.65500         2.22300    121841.22 
+  load (mixed-gaussian): loaded=6000000 errors=0 seconds=59.9 first_error=''
+  mixed-gaussian Sets        46103.75          ---          ---         7.38573         0.35100         1.96700         3.03900     25212.02 
+  mixed-gaussian Gets       184411.60    184411.60         0.00         9.52015         0.36700         1.99100         3.08700     99945.57 
+  mixed-gaussian Totals     230515.34    184411.60         0.00         9.09326         0.36700         1.98300         3.07100    125157.59 
+  load (mixed-gaussian-p16): loaded=6000000 errors=0 seconds=43.1 first_error=''
+  mixed-gaussian-p16 Sets        64982.97          ---          ---         4.91418         3.56700        21.11900        36.86300     35536.21 
+  mixed-gaussian-p16 Gets       259928.10    259928.10         0.00         4.92433         3.58300        21.11900        37.63100    140873.33 
+  mixed-gaussian-p16 Totals     324911.07    259928.10         0.00         4.92230         3.58300        21.11900        37.37500    176409.54 
+  load (write-uniform): loaded=6000000 errors=0 seconds=47.6 first_error=''
+  write-uniform Sets       262971.08          ---          ---         4.19467         0.30300         0.78300         2.06300    143764.58 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     262971.08         0.00         0.00         4.19467         0.30300         0.78300         2.06300    143764.58 
+  end: memory 281.5MiB, disk 14988 MB
+results in bench/results/big-20261022-163520

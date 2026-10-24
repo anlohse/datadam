@@ -1,0 +1,2734 @@
+{
+	"configuration":{
+		"server": "bench-srv"
+		,"port": 6666
+		,"uri": ""
+		,"unix socket": null
+		,"address family": "Unspecified"
+		,"protocol": "redis"
+		,"out_file": null
+		,"tls": "false"
+		,"cert": ""
+		,"key": ""
+		,"cacert": ""
+		,"tls_skip_verify": "false"
+		,"sni": null
+		,"client_stats": null
+		,"run_count": 1
+		,"debug": 0
+		,"requests": 0
+		,"rate_limit": 0
+		,"clients": 25
+		,"threads": 4
+		,"test_time": 60
+		,"ratio": "1:0"
+		,"pipeline": 1
+		,"transaction": "false"
+		,"data_size": 512
+		,"data_offset": 0
+		,"random_data": "true"
+		,"data_size_range": "0:0"
+		,"data_size_list": ""
+		,"data_size_pattern": "R"
+		,"expiry_range": "0:0"
+		,"data_import": null
+		,"data_verify": "false"
+		,"verify_only": "false"
+		,"generate_keys": "false"
+		,"key_prefix": "memtier-"
+		,"key_minimum":           1
+		,"key_maximum":     6000000
+		,"key_pattern": "R:R"
+		,"key_stddev": 0.000000
+		,"key_median": 0.000000
+		,"key_zipf_exp": 0.000000
+		,"reconnect_interval": 0
+		,"retry_on_error": "false"
+		,"max_retries": -1
+		,"retry_backoff_ms": 0
+		,"retry_backoff_factor": 0.000000
+		,"retry_on": ""
+		,"max_retry_queue": 0
+		,"failed_keys_file": ""
+		,"connection_timeout": 0
+		,"connection_stage_timeout": 30
+		,"thread_conn_start_min_jitter_micros": 0
+		,"thread_conn_start_max_jitter_micros": 0
+		,"multi_key_get": 0
+		,"authenticate": ""
+		,"select-db": 0
+		,"no-expiry": "false"
+		,"wait-ratio": "0:0"
+		,"num-slaves": "0:0"
+		,"wait-timeout": "0-0"
+		,"print-all-runs": "false"
+		,"read_preference": "primary"
+		,"read_preference_fallback": "error"
+		,"replica_clients": 0
+		,"replicas_per_shard": 0
+		,"read_servers": ""
+		,"prometheus-port": -1
+		,"prometheus-bind-addr": "127.0.0.1"
+		,"prometheus-run-labels": ""
+		,"prometheus-latency-buckets": "default"
+		}
+	,"run information":{
+		"Threads": 4
+		,"Connections per thread": 25
+		,"Seconds": 60
+		,"Format version": 2
+		}
+	,"ALL STATS":{
+		"Runtime":{
+			"Start time": 1792699118176
+			,"Finish time": 1792699178177
+			,"Total duration": 60001
+			,"Time unit": "MILLISECONDS"
+			,"Interrupted": "false"
+			}
+		,"CPU":{
+			"cpu_user_seconds": 48.738
+			,"cpu_sys_seconds": 130.477
+			,"cpu_total_seconds": 179.215
+			,"cpu_wall_seconds": 60.003
+			,"cpu_cores_used": 2.987
+			,"avg_cpu_utilization_pct": 74.667
+			,"peak_cpu_utilization_pct": 360.824
+			,"threads_counted": 4
+			,"Per Thread":{
+				"Thread 0":{
+					"user_seconds": 12.070
+					,"sys_seconds": 32.386
+					,"total_seconds": 44.456
+					,"wall_seconds": 60.003
+					,"cores_used": 0.741
+					}
+				,"Thread 1":{
+					"user_seconds": 12.103
+					,"sys_seconds": 32.668
+					,"total_seconds": 44.771
+					,"wall_seconds": 60.003
+					,"cores_used": 0.746
+					}
+				,"Thread 2":{
+					"user_seconds": 12.316
+					,"sys_seconds": 32.691
+					,"total_seconds": 45.008
+					,"wall_seconds": 60.003
+					,"cores_used": 0.750
+					}
+				,"Thread 3":{
+					"user_seconds": 12.242
+					,"sys_seconds": 32.731
+					,"total_seconds": 44.974
+					,"wall_seconds": 60.003
+					,"cores_used": 0.750
+					}
+				}
+			}
+		,"Sets":{
+			"Count": 15778593
+			,"Ops/sec": 262971.08
+			,"Hits/sec": 0.00
+			,"Misses/sec": 0.00
+			,"Connection Errors/sec": 0.00
+			,"Connection Errors": 0
+			,"Latency": 27.599
+			,"Average Latency": 27.599
+			,"Accumulated Latency": 435486126
+			,"Min Latency": 0.016
+			,"Max Latency": 603979.775
+			,"KB/sec": 143764.58
+			,"KB/sec RX/TX": 143764.58
+			,"KB/sec RX": 1284.04
+			,"KB/sec TX": 142480.54
+			,"Time-Serie":{
+				"0":{
+					"Bytes RX": 1515570
+					,"Bytes TX": 168173937
+					,"Count": 303114
+					,"Average Latency": 0.329
+					,"Accumulated Latency": 99774
+					,"Min Latency": 0.025
+					,"Max Latency": 19.302
+					,"p50.00": 0.391
+					,"p99.00": 0.943
+					,"p99.90": 2.143
+					}
+				,"1":{
+					"Bytes RX": 1604415
+					,"Bytes TX": 178029247
+					,"Count": 320883
+					,"Average Latency": 0.311
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.022
+					,"Max Latency": 2.487
+					,"p50.00": 0.391
+					,"p99.00": 0.839
+					,"p99.90": 1.871
+					}
+				,"2":{
+					"Bytes RX": 1600485
+					,"Bytes TX": 177592436
+					,"Count": 320097
+					,"Average Latency": 0.312
+					,"Accumulated Latency": 99799
+					,"Min Latency": 0.027
+					,"Max Latency": 2.944
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 2.159
+					}
+				,"3":{
+					"Bytes RX": 1583870
+					,"Bytes TX": 175750177
+					,"Count": 316774
+					,"Average Latency": 0.315
+					,"Accumulated Latency": 99785
+					,"Min Latency": 0.021
+					,"Max Latency": 2.733
+					,"p50.00": 0.391
+					,"p99.00": 0.807
+					,"p99.90": 1.223
+					}
+				,"4":{
+					"Bytes RX": 1658085
+					,"Bytes TX": 183986235
+					,"Count": 331617
+					,"Average Latency": 0.301
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 2.038
+					,"p50.00": 0.367
+					,"p99.00": 0.807
+					,"p99.90": 1.295
+					}
+				,"5":{
+					"Bytes RX": 1591395
+					,"Bytes TX": 176586278
+					,"Count": 318279
+					,"Average Latency": 0.314
+					,"Accumulated Latency": 99789
+					,"Min Latency": 0.025
+					,"Max Latency": 3.088
+					,"p50.00": 0.375
+					,"p99.00": 0.799
+					,"p99.90": 1.383
+					}
+				,"6":{
+					"Bytes RX": 1579515
+					,"Bytes TX": 175268412
+					,"Count": 315903
+					,"Average Latency": 0.316
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 3.989
+					,"p50.00": 0.391
+					,"p99.00": 0.831
+					,"p99.90": 1.527
+					}
+				,"7":{
+					"Bytes RX": 1608940
+					,"Bytes TX": 178532949
+					,"Count": 321788
+					,"Average Latency": 0.310
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.026
+					,"Max Latency": 2.468
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 1.303
+					}
+				,"8":{
+					"Bytes RX": 1576290
+					,"Bytes TX": 174909979
+					,"Count": 315258
+					,"Average Latency": 0.317
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.022
+					,"Max Latency": 3.521
+					,"p50.00": 0.383
+					,"p99.00": 0.863
+					,"p99.90": 1.311
+					}
+				,"9":{
+					"Bytes RX": 1489060
+					,"Bytes TX": 165230208
+					,"Count": 297812
+					,"Average Latency": 0.335
+					,"Accumulated Latency": 99783
+					,"Min Latency": 0.022
+					,"Max Latency": 3.343
+					,"p50.00": 0.399
+					,"p99.00": 0.879
+					,"p99.90": 1.567
+					}
+				,"10":{
+					"Bytes RX": 1612255
+					,"Bytes TX": 178900543
+					,"Count": 322451
+					,"Average Latency": 0.309
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.022
+					,"Max Latency": 2.909
+					,"p50.00": 0.367
+					,"p99.00": 0.823
+					,"p99.90": 1.375
+					}
+				,"11":{
+					"Bytes RX": 1547565
+					,"Bytes TX": 171722355
+					,"Count": 309513
+					,"Average Latency": 0.322
+					,"Accumulated Latency": 99781
+					,"Min Latency": 0.027
+					,"Max Latency": 2.166
+					,"p50.00": 0.399
+					,"p99.00": 0.799
+					,"p99.90": 1.399
+					}
+				,"12":{
+					"Bytes RX": 1587750
+					,"Bytes TX": 176181552
+					,"Count": 317550
+					,"Average Latency": 1352.847
+					,"Accumulated Latency": 429596520
+					,"Min Latency": 0.026
+					,"Max Latency": 4294965.828
+					,"p50.00": 0.391
+					,"p99.00": 0.799
+					,"p99.90": 2.255
+					}
+				,"13":{
+					"Bytes RX": 1568690
+					,"Bytes TX": 174067307
+					,"Count": 313738
+					,"Average Latency": 0.318
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 2.708
+					,"p50.00": 0.391
+					,"p99.00": 0.863
+					,"p99.90": 1.935
+					}
+				,"14":{
+					"Bytes RX": 1571590
+					,"Bytes TX": 174388023
+					,"Count": 314318
+					,"Average Latency": 0.317
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.027
+					,"Max Latency": 2.454
+					,"p50.00": 0.391
+					,"p99.00": 0.791
+					,"p99.90": 1.823
+					}
+				,"15":{
+					"Bytes RX": 1555445
+					,"Bytes TX": 172596204
+					,"Count": 311089
+					,"Average Latency": 0.321
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.026
+					,"Max Latency": 5.150
+					,"p50.00": 0.383
+					,"p99.00": 0.839
+					,"p99.90": 1.807
+					}
+				,"16":{
+					"Bytes RX": 1549005
+					,"Bytes TX": 171882118
+					,"Count": 309801
+					,"Average Latency": 0.322
+					,"Accumulated Latency": 99802
+					,"Min Latency": 0.026
+					,"Max Latency": 39.049
+					,"p50.00": 0.375
+					,"p99.00": 0.831
+					,"p99.90": 2.671
+					}
+				,"17":{
+					"Bytes RX": 1560660
+					,"Bytes TX": 173175303
+					,"Count": 312132
+					,"Average Latency": 0.320
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.025
+					,"Max Latency": 3.226
+					,"p50.00": 0.383
+					,"p99.00": 0.839
+					,"p99.90": 2.687
+					}
+				,"18":{
+					"Bytes RX": 1543290
+					,"Bytes TX": 171248361
+					,"Count": 308658
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99791
+					,"Min Latency": 0.023
+					,"Max Latency": 4.415
+					,"p50.00": 0.383
+					,"p99.00": 0.863
+					,"p99.90": 4.063
+					}
+				,"19":{
+					"Bytes RX": 1524970
+					,"Bytes TX": 169213827
+					,"Count": 304994
+					,"Average Latency": 0.327
+					,"Accumulated Latency": 99789
+					,"Min Latency": 0.027
+					,"Max Latency": 5.131
+					,"p50.00": 0.399
+					,"p99.00": 0.911
+					,"p99.90": 2.287
+					}
+				,"20":{
+					"Bytes RX": 1545060
+					,"Bytes TX": 171443779
+					,"Count": 309012
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.027
+					,"Max Latency": 5.351
+					,"p50.00": 0.399
+					,"p99.00": 0.879
+					,"p99.90": 4.639
+					}
+				,"21":{
+					"Bytes RX": 1459120
+					,"Bytes TX": 161908016
+					,"Count": 291824
+					,"Average Latency": 0.342
+					,"Accumulated Latency": 99800
+					,"Min Latency": 0.026
+					,"Max Latency": 63.598
+					,"p50.00": 0.391
+					,"p99.00": 0.831
+					,"p99.90": 1.895
+					}
+				,"22":{
+					"Bytes RX": 1461865
+					,"Bytes TX": 162211878
+					,"Count": 292373
+					,"Average Latency": 0.341
+					,"Accumulated Latency": 99808
+					,"Min Latency": 0.025
+					,"Max Latency": 76.623
+					,"p50.00": 0.383
+					,"p99.00": 0.823
+					,"p99.90": 2.335
+					}
+				,"23":{
+					"Bytes RX": 1494040
+					,"Bytes TX": 165782712
+					,"Count": 298808
+					,"Average Latency": 0.334
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.022
+					,"Max Latency": 31.775
+					,"p50.00": 0.391
+					,"p99.00": 0.871
+					,"p99.90": 2.607
+					}
+				,"24":{
+					"Bytes RX": 1160090
+					,"Bytes TX": 128726601
+					,"Count": 232018
+					,"Average Latency": 0.430
+					,"Accumulated Latency": 99839
+					,"Min Latency": 0.022
+					,"Max Latency": 232.456
+					,"p50.00": 0.383
+					,"p99.00": 0.815
+					,"p99.90": 2.007
+					}
+				,"25":{
+					"Bytes RX": 1556900
+					,"Bytes TX": 172758139
+					,"Count": 311380
+					,"Average Latency": 0.321
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.023
+					,"Max Latency": 45.878
+					,"p50.00": 0.375
+					,"p99.00": 0.783
+					,"p99.90": 2.335
+					}
+				,"26":{
+					"Bytes RX": 1343380
+					,"Bytes TX": 149064524
+					,"Count": 268676
+					,"Average Latency": 0.371
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.026
+					,"Max Latency": 126.987
+					,"p50.00": 0.391
+					,"p99.00": 0.903
+					,"p99.90": 2.655
+					}
+				,"27":{
+					"Bytes RX": 1075110
+					,"Bytes TX": 119297460
+					,"Count": 215022
+					,"Average Latency": 0.464
+					,"Accumulated Latency": 99846
+					,"Min Latency": 0.026
+					,"Max Latency": 247.761
+					,"p50.00": 0.391
+					,"p99.00": 0.943
+					,"p99.90": 2.271
+					}
+				,"28":{
+					"Bytes RX": 1591720
+					,"Bytes TX": 176621448
+					,"Count": 318344
+					,"Average Latency": 0.313
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.027
+					,"Max Latency": 4.366
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 2.271
+					}
+				,"29":{
+					"Bytes RX": 1324855
+					,"Bytes TX": 147009647
+					,"Count": 264971
+					,"Average Latency": 0.371
+					,"Accumulated Latency": 98304
+					,"Min Latency": 0.024
+					,"Max Latency": 99.515
+					,"p50.00": 0.399
+					,"p99.00": 0.991
+					,"p99.90": 2.271
+					}
+				,"30":{
+					"Bytes RX": 751160
+					,"Bytes TX": 83351110
+					,"Count": 150232
+					,"Average Latency": 0.675
+					,"Accumulated Latency": 101415
+					,"Min Latency": 0.027
+					,"Max Latency": 279.140
+					,"p50.00": 0.375
+					,"p99.00": 0.903
+					,"p99.90": 268.287
+					}
+				,"31":{
+					"Bytes RX": 1046885
+					,"Bytes TX": 116165870
+					,"Count": 209377
+					,"Average Latency": 0.454
+					,"Accumulated Latency": 95030
+					,"Min Latency": 0.028
+					,"Max Latency": 285.449
+					,"p50.00": 0.399
+					,"p99.00": 0.943
+					,"p99.90": 1.775
+					}
+				,"32":{
+					"Bytes RX": 1386390
+					,"Bytes TX": 153837087
+					,"Count": 277278
+					,"Average Latency": 0.377
+					,"Accumulated Latency": 104631
+					,"Min Latency": 0.027
+					,"Max Latency": 148.072
+					,"p50.00": 0.391
+					,"p99.00": 0.911
+					,"p99.90": 2.655
+					}
+				,"33":{
+					"Bytes RX": 1439905
+					,"Bytes TX": 159775701
+					,"Count": 287981
+					,"Average Latency": 0.347
+					,"Accumulated Latency": 99810
+					,"Min Latency": 0.026
+					,"Max Latency": 61.025
+					,"p50.00": 0.391
+					,"p99.00": 0.871
+					,"p99.90": 2.911
+					}
+				,"34":{
+					"Bytes RX": 1444495
+					,"Bytes TX": 160285609
+					,"Count": 288899
+					,"Average Latency": 0.345
+					,"Accumulated Latency": 99803
+					,"Min Latency": 0.023
+					,"Max Latency": 70.650
+					,"p50.00": 0.391
+					,"p99.00": 0.935
+					,"p99.90": 3.119
+					}
+				,"35":{
+					"Bytes RX": 1219595
+					,"Bytes TX": 135328812
+					,"Count": 243919
+					,"Average Latency": 0.409
+					,"Accumulated Latency": 99821
+					,"Min Latency": 0.025
+					,"Max Latency": 102.594
+					,"p50.00": 0.391
+					,"p99.00": 1.031
+					,"p99.90": 2.319
+					}
+				,"36":{
+					"Bytes RX": 954190
+					,"Bytes TX": 105879169
+					,"Count": 190838
+					,"Average Latency": 0.523
+					,"Accumulated Latency": 99876
+					,"Min Latency": 0.020
+					,"Max Latency": 362.214
+					,"p50.00": 0.383
+					,"p99.00": 0.807
+					,"p99.90": 2.255
+					}
+				,"37":{
+					"Bytes RX": 991375
+					,"Bytes TX": 110005120
+					,"Count": 198275
+					,"Average Latency": 0.408
+					,"Accumulated Latency": 80824
+					,"Min Latency": 0.029
+					,"Max Latency": 174.494
+					,"p50.00": 0.391
+					,"p99.00": 0.919
+					,"p99.90": 2.127
+					}
+				,"38":{
+					"Bytes RX": 1284950
+					,"Bytes TX": 142581338
+					,"Count": 256990
+					,"Average Latency": 0.450
+					,"Accumulated Latency": 115577
+					,"Min Latency": 0.030
+					,"Max Latency": 298.620
+					,"p50.00": 0.399
+					,"p99.00": 1.055
+					,"p99.90": 2.023
+					}
+				,"39":{
+					"Bytes RX": 429360
+					,"Bytes TX": 47642812
+					,"Count": 85872
+					,"Average Latency": 1.202
+					,"Accumulated Latency": 103218
+					,"Min Latency": 0.023
+					,"Max Latency": 408.462
+					,"p50.00": 0.375
+					,"p99.00": 1.095
+					,"p99.90": 268.287
+					}
+				,"40":{
+					"Bytes RX": 1118405
+					,"Bytes TX": 124102374
+					,"Count": 223681
+					,"Average Latency": 0.332
+					,"Accumulated Latency": 74346
+					,"Min Latency": 0.029
+					,"Max Latency": 2.996
+					,"p50.00": 0.391
+					,"p99.00": 0.951
+					,"p99.90": 1.655
+					}
+				,"41":{
+					"Bytes RX": 1102990
+					,"Bytes TX": 122391824
+					,"Count": 220598
+					,"Average Latency": 0.568
+					,"Accumulated Latency": 125346
+					,"Min Latency": 0.029
+					,"Max Latency": 370.362
+					,"p50.00": 0.391
+					,"p99.00": 0.983
+					,"p99.90": 4.735
+					}
+				,"42":{
+					"Bytes RX": 698125
+					,"Bytes TX": 77465598
+					,"Count": 139625
+					,"Average Latency": 0.483
+					,"Accumulated Latency": 67404
+					,"Min Latency": 0.026
+					,"Max Latency": 231.234
+					,"p50.00": 0.367
+					,"p99.00": 0.863
+					,"p99.90": 3.583
+					}
+				,"43":{
+					"Bytes RX": 1055405
+					,"Bytes TX": 117110461
+					,"Count": 211081
+					,"Average Latency": 0.627
+					,"Accumulated Latency": 132335
+					,"Min Latency": 0.022
+					,"Max Latency": 529.219
+					,"p50.00": 0.399
+					,"p99.00": 1.015
+					,"p99.90": 2.703
+					}
+				,"44":{
+					"Bytes RX": 478445
+					,"Bytes TX": 53089343
+					,"Count": 95689
+					,"Average Latency": 0.863
+					,"Accumulated Latency": 82583
+					,"Min Latency": 0.027
+					,"Max Latency": 483.761
+					,"p50.00": 0.415
+					,"p99.00": 1.119
+					,"p99.90": 1.863
+					}
+				,"45":{
+					"Bytes RX": 1109620
+					,"Bytes TX": 123126430
+					,"Count": 221924
+					,"Average Latency": 0.528
+					,"Accumulated Latency": 117182
+					,"Min Latency": 0.027
+					,"Max Latency": 276.898
+					,"p50.00": 0.407
+					,"p99.00": 1.135
+					,"p99.90": 7.231
+					}
+				,"46":{
+					"Bytes RX": 761820
+					,"Bytes TX": 84533502
+					,"Count": 152364
+					,"Average Latency": 0.656
+					,"Accumulated Latency": 99893
+					,"Min Latency": 0.027
+					,"Max Latency": 352.632
+					,"p50.00": 0.383
+					,"p99.00": 0.983
+					,"p99.90": 149.503
+					}
+				,"47":{
+					"Bytes RX": 987430
+					,"Bytes TX": 109568433
+					,"Count": 197486
+					,"Average Latency": 0.384
+					,"Accumulated Latency": 75903
+					,"Min Latency": 0.027
+					,"Max Latency": 105.891
+					,"p50.00": 0.399
+					,"p99.00": 1.015
+					,"p99.90": 1.423
+					}
+				,"48":{
+					"Bytes RX": 1274570
+					,"Bytes TX": 141430811
+					,"Count": 254914
+					,"Average Latency": 0.486
+					,"Accumulated Latency": 123776
+					,"Min Latency": 0.023
+					,"Max Latency": 386.849
+					,"p50.00": 0.383
+					,"p99.00": 0.927
+					,"p99.90": 2.687
+					}
+				,"49":{
+					"Bytes RX": 1544300
+					,"Bytes TX": 171360433
+					,"Count": 308860
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99794
+					,"Min Latency": 0.027
+					,"Max Latency": 3.627
+					,"p50.00": 0.391
+					,"p99.00": 0.919
+					,"p99.90": 2.175
+					}
+				,"50":{
+					"Bytes RX": 663145
+					,"Bytes TX": 73584768
+					,"Count": 132629
+					,"Average Latency": 0.753
+					,"Accumulated Latency": 99893
+					,"Min Latency": 0.030
+					,"Max Latency": 537.549
+					,"p50.00": 0.407
+					,"p99.00": 1.103
+					,"p99.90": 3.295
+					}
+				,"51":{
+					"Bytes RX": 1099320
+					,"Bytes TX": 121983890
+					,"Count": 219864
+					,"Average Latency": 0.454
+					,"Accumulated Latency": 99844
+					,"Min Latency": 0.025
+					,"Max Latency": 295.816
+					,"p50.00": 0.383
+					,"p99.00": 0.895
+					,"p99.90": 1.263
+					}
+				,"52":{
+					"Bytes RX": 608760
+					,"Bytes TX": 67549431
+					,"Count": 121752
+					,"Average Latency": 0.660
+					,"Accumulated Latency": 80326
+					,"Min Latency": 0.022
+					,"Max Latency": 346.307
+					,"p50.00": 0.431
+					,"p99.00": 1.295
+					,"p99.90": 4.863
+					}
+				,"53":{
+					"Bytes RX": 1296990
+					,"Bytes TX": 143917107
+					,"Count": 259398
+					,"Average Latency": 0.460
+					,"Accumulated Latency": 119400
+					,"Min Latency": 0.025
+					,"Max Latency": 356.459
+					,"p50.00": 0.391
+					,"p99.00": 0.895
+					,"p99.90": 3.103
+					}
+				,"54":{
+					"Bytes RX": 1501815
+					,"Bytes TX": 166645632
+					,"Count": 300363
+					,"Average Latency": 0.332
+					,"Accumulated Latency": 99798
+					,"Min Latency": 0.026
+					,"Max Latency": 25.008
+					,"p50.00": 0.399
+					,"p99.00": 0.871
+					,"p99.90": 3.903
+					}
+				,"55":{
+					"Bytes RX": 1430725
+					,"Bytes TX": 158757606
+					,"Count": 286145
+					,"Average Latency": 0.349
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.026
+					,"Max Latency": 92.147
+					,"p50.00": 0.391
+					,"p99.00": 0.839
+					,"p99.90": 2.223
+					}
+				,"56":{
+					"Bytes RX": 1343000
+					,"Bytes TX": 149023091
+					,"Count": 268600
+					,"Average Latency": 0.372
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.024
+					,"Max Latency": 86.741
+					,"p50.00": 0.383
+					,"p99.00": 0.815
+					,"p99.90": 2.607
+					}
+				,"57":{
+					"Bytes RX": 1514260
+					,"Bytes TX": 168026578
+					,"Count": 302852
+					,"Average Latency": 0.330
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.026
+					,"Max Latency": 6.402
+					,"p50.00": 0.407
+					,"p99.00": 0.911
+					,"p99.90": 3.407
+					}
+				,"58":{
+					"Bytes RX": 1541020
+					,"Bytes TX": 170995975
+					,"Count": 308204
+					,"Average Latency": 0.324
+					,"Accumulated Latency": 99798
+					,"Min Latency": 0.025
+					,"Max Latency": 34.925
+					,"p50.00": 0.375
+					,"p99.00": 0.807
+					,"p99.90": 1.271
+					}
+				,"59":{
+					"Bytes RX": 1373030
+					,"Bytes TX": 152355671
+					,"Count": 274606
+					,"Average Latency": 0.363
+					,"Accumulated Latency": 99791
+					,"Min Latency": 0.025
+					,"Max Latency": 59.245
+					,"p50.00": 0.415
+					,"p99.00": 0.943
+					,"p99.90": 2.023
+					}
+				,"60":{
+					"Bytes RX": 500
+					,"Bytes TX": 55481
+					,"Count": 100
+					,"Average Latency": 1.418
+					,"Accumulated Latency": 141
+					,"Min Latency": 0.224
+					,"Max Latency": 2.671
+					,"p50.00": 2.063
+					,"p99.00": 2.063
+					,"p99.90": 2.063
+					}
+				}
+			,"Percentile Latencies":{
+				"p50.00": 0.303
+				,"p99.00": 0.783
+				,"p99.90": 2.063
+				,"Histogram log format":{
+					"Compressed Histogram": "HISTFAAABD94nC2Sf0hbVxTHPef9yMtrjPGZxTR9plmMaUxeUwlBRCQLgYXSdkOKuCFsyBj+sXVDpPSPUkomWeZSEWedZC6zrpPgqrgsZM6JC+KCy5zNnIhzmZMgokE656yzEkV2S3fh3MP93u/5HO4P0X+3pKCAfrPg2cD/M/90Kv/BW/DC7jOBMo2zx4Zc42EE9j/H8SUqNc0E/pDtDvLHdwrzAVU8XBJ5T7O9ox378UznUdnwiCE8Yuw6Kg+MVvj/Mh9+aJn52zK3X9l/ZB3/2pZ7bGsfkWZHpMz30lhSOvhOmpqWdoal4BPbYtI2dM+Wylnzn1g7NyqH1i2j/5xL/GyOfFmR2ioPTRlnsobsZ2e3fy1buiNGk7rgE217sjTbo0kvq/OxkgchIbGnWtgtWvldGfmtMJJV+LdOrZ7wiX5+7xt5eINb/IiLT8v6HrO+GDu6z6QTTHeACT2k9+7R8X+puV+o+SEq/T41uYX+h7gaw9inOBvArj1I/Ql9P8FoAtJfQeALyNyF5AfQc3vleu6deEv4tfgryfqxy0verKfdNVEzWT3n8F2YO79a2XNuzhyt6Ctfe37hbFbMlPl0udP50m3No9Lgc2Pq5ZK8sFrSLhwUB4r3VCfKYFFUGVf2KHsL84XdiolTiVOTfJrPy+fl6/Je3i/f5OLcpiwiG5Dtsl2yfbaDnWR9bJo5YPrYCNPN7ND36UP6PuOnE/QoHaF76VlqmkpS3VQGpzCPSzhIzWM3buIMnsAexDGOPtyGRfDjIizDMWTgaZ6FebKbgQD24wpRQpiCJcjBLpxAJ4ZxA/qxC9tJbQBDeAyjxDeIadwhrmlYIZwYcQVJj27swQykIQspwpuCTRiAMYjABCzAGuzjBLWNQ9Q6qV3ALiqHPipNIoq9VBxj6MdZXMUOag6jpEMeBnGNkHbgENZhAx4R0jyME+4ByUnCHIB+onXAMNwKwfXmHvDD7Za2tmvX3mrxNtU3NHtartS/8XJtk8tZVeW0XHI3emoueRsbX73Y6PA63NW1XrvLa9I53aLVblE5qkxmq95uVuk0Wp1V0Og1ZrvebnBZ9WpBUktWR03tTYe7/mZz242Wq62tF93VTpddEkVR4JUqJSCrU4ui2WSpM+k5q9Zo0Ao6nmcVNNCAiDTPKxQKQadQqHglCYNVJegFmmV5oBn6W6QVwBlZpI0czZnUSvYllcXl0HLnFWqTaNFxnIDI0PraaqOADO9xi3osrW02c0XobjahOAiKCw2tdKXOadcZBF4wuquV7Gl7nVvDATZ5dTzK+CsuQWTPsD7wlPSCswjfvcrKyYItrG80AhcCC0XzNzzs65Y6FqQA6MNgYIJgV12mb3nYSmeDOwaasrpOkD8A/dtZcu9YGgVtWXMUmSnyAhKVAtky1tomQEU+BZck504BFQZJjgNgKa4KwYvWAajoADfRP1an4D8k6oWe"
+					}
+				}
+			}
+		,"Gets":{
+			"Count": 0
+			,"Ops/sec": 0.00
+			,"Hits/sec": 0.00
+			,"Misses/sec": 0.00
+			,"Connection Errors/sec": 0.00
+			,"Connection Errors": 0
+			,"Latency": 0.000
+			,"Average Latency": 0.000
+			,"Accumulated Latency": 0
+			,"Min Latency": 0.000
+			,"Max Latency": 0.000
+			,"KB/sec": 0.00
+			,"KB/sec RX/TX": 0.00
+			,"KB/sec RX": 0.00
+			,"KB/sec TX": 0.00
+			,"Time-Serie":{
+				"0":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"1":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"2":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"3":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"4":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"5":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"6":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"7":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"8":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"9":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"10":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"11":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"12":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"13":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"14":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"15":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"16":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"17":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"18":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"19":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"20":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"21":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"22":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"23":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"24":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"25":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"26":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"27":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"28":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"29":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"30":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"31":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"32":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"33":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"34":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"35":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"36":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"37":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"38":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"39":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"40":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"41":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"42":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"43":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"44":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"45":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"46":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"47":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"48":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"49":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"50":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"51":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"52":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"53":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"54":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"55":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"56":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"57":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"58":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"59":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"60":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				}
+			,"Percentile Latencies":{
+				"p50.00": 0.007
+				,"p99.00": 0.007
+				,"p99.90": 0.007
+				,"Histogram log format":{
+					"Compressed Histogram": "HISTFAAAACF4nJNpmSzMwMDAyAABTFCaC0QoH3ZjsP8AEWAEAEsrA7A="
+					}
+				}
+			}
+		,"Waits":{
+			"Count": 0
+			,"Ops/sec": 0.00
+			,"Hits/sec": 0.00
+			,"Misses/sec": 0.00
+			,"Connection Errors/sec": 0.00
+			,"Connection Errors": 0
+			,"Latency": 0.000
+			,"Average Latency": 0.000
+			,"Accumulated Latency": 0
+			,"Min Latency": 0.000
+			,"Max Latency": 0.000
+			,"KB/sec": 0.00
+			,"KB/sec RX/TX": 0.00
+			,"KB/sec RX": 0.00
+			,"KB/sec TX": 0.00
+			,"Time-Serie":{
+				"0":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"1":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"2":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"3":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"4":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"5":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"6":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"7":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"8":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"9":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"10":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"11":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"12":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"13":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"14":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"15":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"16":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"17":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"18":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"19":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"20":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"21":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"22":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"23":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"24":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"25":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"26":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"27":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"28":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"29":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"30":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"31":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"32":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"33":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"34":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"35":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"36":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"37":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"38":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"39":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"40":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"41":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"42":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"43":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"44":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"45":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"46":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"47":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"48":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"49":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"50":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"51":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"52":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"53":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"54":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"55":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"56":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"57":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"58":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"59":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				,"60":{
+					"Bytes RX": 0
+					,"Bytes TX": 0
+					,"Count": 0
+					}
+				}
+			,"Percentile Latencies":{
+				"p50.00": 0.007
+				,"p99.00": 0.007
+				,"p99.90": 0.007
+				,"Histogram log format":{
+					"Compressed Histogram": "HISTFAAAACF4nJNpmSzMwMDAyAABTFCaC0QoH3ZjsP8AEWAEAEsrA7A="
+					}
+				}
+			}
+		,"Totals":{
+			"Count": 15778593
+			,"Ops/sec": 262971.08
+			,"Hits/sec": 0.00
+			,"Misses/sec": 0.00
+			,"Connection Errors/sec": 0.00
+			,"Connection Errors": 0
+			,"Latency": 27.600
+			,"Average Latency": 27.600
+			,"Accumulated Latency": 435486126
+			,"Min Latency": 0.016
+			,"Max Latency": 603979.775
+			,"KB/sec": 143764.58
+			,"KB/sec RX/TX": 143764.58
+			,"KB/sec RX": 1284.04
+			,"KB/sec TX": 142480.54
+			,"Time-Serie":{
+				"0":{
+					"Bytes RX": 1515570
+					,"Bytes TX": 168173937
+					,"Count": 303114
+					,"Average Latency": 0.329
+					,"Accumulated Latency": 99774
+					,"Min Latency": 0.025
+					,"Max Latency": 19.302
+					,"p50.00": 0.391
+					,"p99.00": 0.943
+					,"p99.90": 2.143
+					}
+				,"1":{
+					"Bytes RX": 1604415
+					,"Bytes TX": 178029247
+					,"Count": 320883
+					,"Average Latency": 0.311
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.022
+					,"Max Latency": 2.487
+					,"p50.00": 0.391
+					,"p99.00": 0.839
+					,"p99.90": 1.871
+					}
+				,"2":{
+					"Bytes RX": 1600485
+					,"Bytes TX": 177592436
+					,"Count": 320097
+					,"Average Latency": 0.312
+					,"Accumulated Latency": 99799
+					,"Min Latency": 0.027
+					,"Max Latency": 2.944
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 2.159
+					}
+				,"3":{
+					"Bytes RX": 1583870
+					,"Bytes TX": 175750177
+					,"Count": 316774
+					,"Average Latency": 0.315
+					,"Accumulated Latency": 99785
+					,"Min Latency": 0.021
+					,"Max Latency": 2.733
+					,"p50.00": 0.391
+					,"p99.00": 0.807
+					,"p99.90": 1.223
+					}
+				,"4":{
+					"Bytes RX": 1658085
+					,"Bytes TX": 183986235
+					,"Count": 331617
+					,"Average Latency": 0.301
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 2.038
+					,"p50.00": 0.367
+					,"p99.00": 0.807
+					,"p99.90": 1.295
+					}
+				,"5":{
+					"Bytes RX": 1591395
+					,"Bytes TX": 176586278
+					,"Count": 318279
+					,"Average Latency": 0.314
+					,"Accumulated Latency": 99789
+					,"Min Latency": 0.025
+					,"Max Latency": 3.088
+					,"p50.00": 0.375
+					,"p99.00": 0.799
+					,"p99.90": 1.383
+					}
+				,"6":{
+					"Bytes RX": 1579515
+					,"Bytes TX": 175268412
+					,"Count": 315903
+					,"Average Latency": 0.316
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 3.989
+					,"p50.00": 0.391
+					,"p99.00": 0.831
+					,"p99.90": 1.527
+					}
+				,"7":{
+					"Bytes RX": 1608940
+					,"Bytes TX": 178532949
+					,"Count": 321788
+					,"Average Latency": 0.310
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.026
+					,"Max Latency": 2.468
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 1.303
+					}
+				,"8":{
+					"Bytes RX": 1576290
+					,"Bytes TX": 174909979
+					,"Count": 315258
+					,"Average Latency": 0.317
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.022
+					,"Max Latency": 3.521
+					,"p50.00": 0.383
+					,"p99.00": 0.863
+					,"p99.90": 1.311
+					}
+				,"9":{
+					"Bytes RX": 1489060
+					,"Bytes TX": 165230208
+					,"Count": 297812
+					,"Average Latency": 0.335
+					,"Accumulated Latency": 99783
+					,"Min Latency": 0.022
+					,"Max Latency": 3.343
+					,"p50.00": 0.399
+					,"p99.00": 0.879
+					,"p99.90": 1.567
+					}
+				,"10":{
+					"Bytes RX": 1612255
+					,"Bytes TX": 178900543
+					,"Count": 322451
+					,"Average Latency": 0.309
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.022
+					,"Max Latency": 2.909
+					,"p50.00": 0.367
+					,"p99.00": 0.823
+					,"p99.90": 1.375
+					}
+				,"11":{
+					"Bytes RX": 1547565
+					,"Bytes TX": 171722355
+					,"Count": 309513
+					,"Average Latency": 0.322
+					,"Accumulated Latency": 99781
+					,"Min Latency": 0.027
+					,"Max Latency": 2.166
+					,"p50.00": 0.399
+					,"p99.00": 0.799
+					,"p99.90": 1.399
+					}
+				,"12":{
+					"Bytes RX": 1587750
+					,"Bytes TX": 176181552
+					,"Count": 317550
+					,"Average Latency": 1352.847
+					,"Accumulated Latency": 429596520
+					,"Min Latency": 0.026
+					,"Max Latency": 4294965.828
+					,"p50.00": 0.391
+					,"p99.00": 0.799
+					,"p99.90": 2.255
+					}
+				,"13":{
+					"Bytes RX": 1568690
+					,"Bytes TX": 174067307
+					,"Count": 313738
+					,"Average Latency": 0.318
+					,"Accumulated Latency": 99793
+					,"Min Latency": 0.025
+					,"Max Latency": 2.708
+					,"p50.00": 0.391
+					,"p99.00": 0.863
+					,"p99.90": 1.935
+					}
+				,"14":{
+					"Bytes RX": 1571590
+					,"Bytes TX": 174388023
+					,"Count": 314318
+					,"Average Latency": 0.317
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.027
+					,"Max Latency": 2.454
+					,"p50.00": 0.391
+					,"p99.00": 0.791
+					,"p99.90": 1.823
+					}
+				,"15":{
+					"Bytes RX": 1555445
+					,"Bytes TX": 172596204
+					,"Count": 311089
+					,"Average Latency": 0.321
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.026
+					,"Max Latency": 5.150
+					,"p50.00": 0.383
+					,"p99.00": 0.839
+					,"p99.90": 1.807
+					}
+				,"16":{
+					"Bytes RX": 1549005
+					,"Bytes TX": 171882118
+					,"Count": 309801
+					,"Average Latency": 0.322
+					,"Accumulated Latency": 99802
+					,"Min Latency": 0.026
+					,"Max Latency": 39.049
+					,"p50.00": 0.375
+					,"p99.00": 0.831
+					,"p99.90": 2.671
+					}
+				,"17":{
+					"Bytes RX": 1560660
+					,"Bytes TX": 173175303
+					,"Count": 312132
+					,"Average Latency": 0.320
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.025
+					,"Max Latency": 3.226
+					,"p50.00": 0.383
+					,"p99.00": 0.839
+					,"p99.90": 2.687
+					}
+				,"18":{
+					"Bytes RX": 1543290
+					,"Bytes TX": 171248361
+					,"Count": 308658
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99791
+					,"Min Latency": 0.023
+					,"Max Latency": 4.415
+					,"p50.00": 0.383
+					,"p99.00": 0.863
+					,"p99.90": 4.063
+					}
+				,"19":{
+					"Bytes RX": 1524970
+					,"Bytes TX": 169213827
+					,"Count": 304994
+					,"Average Latency": 0.327
+					,"Accumulated Latency": 99789
+					,"Min Latency": 0.027
+					,"Max Latency": 5.131
+					,"p50.00": 0.399
+					,"p99.00": 0.911
+					,"p99.90": 2.287
+					}
+				,"20":{
+					"Bytes RX": 1545060
+					,"Bytes TX": 171443779
+					,"Count": 309012
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.027
+					,"Max Latency": 5.351
+					,"p50.00": 0.399
+					,"p99.00": 0.879
+					,"p99.90": 4.639
+					}
+				,"21":{
+					"Bytes RX": 1459120
+					,"Bytes TX": 161908016
+					,"Count": 291824
+					,"Average Latency": 0.342
+					,"Accumulated Latency": 99800
+					,"Min Latency": 0.026
+					,"Max Latency": 63.598
+					,"p50.00": 0.391
+					,"p99.00": 0.831
+					,"p99.90": 1.895
+					}
+				,"22":{
+					"Bytes RX": 1461865
+					,"Bytes TX": 162211878
+					,"Count": 292373
+					,"Average Latency": 0.341
+					,"Accumulated Latency": 99808
+					,"Min Latency": 0.025
+					,"Max Latency": 76.623
+					,"p50.00": 0.383
+					,"p99.00": 0.823
+					,"p99.90": 2.335
+					}
+				,"23":{
+					"Bytes RX": 1494040
+					,"Bytes TX": 165782712
+					,"Count": 298808
+					,"Average Latency": 0.334
+					,"Accumulated Latency": 99796
+					,"Min Latency": 0.022
+					,"Max Latency": 31.775
+					,"p50.00": 0.391
+					,"p99.00": 0.871
+					,"p99.90": 2.607
+					}
+				,"24":{
+					"Bytes RX": 1160090
+					,"Bytes TX": 128726601
+					,"Count": 232018
+					,"Average Latency": 0.430
+					,"Accumulated Latency": 99839
+					,"Min Latency": 0.022
+					,"Max Latency": 232.456
+					,"p50.00": 0.383
+					,"p99.00": 0.815
+					,"p99.90": 2.007
+					}
+				,"25":{
+					"Bytes RX": 1556900
+					,"Bytes TX": 172758139
+					,"Count": 311380
+					,"Average Latency": 0.321
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.023
+					,"Max Latency": 45.878
+					,"p50.00": 0.375
+					,"p99.00": 0.783
+					,"p99.90": 2.335
+					}
+				,"26":{
+					"Bytes RX": 1343380
+					,"Bytes TX": 149064524
+					,"Count": 268676
+					,"Average Latency": 0.371
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.026
+					,"Max Latency": 126.987
+					,"p50.00": 0.391
+					,"p99.00": 0.903
+					,"p99.90": 2.655
+					}
+				,"27":{
+					"Bytes RX": 1075110
+					,"Bytes TX": 119297460
+					,"Count": 215022
+					,"Average Latency": 0.464
+					,"Accumulated Latency": 99846
+					,"Min Latency": 0.026
+					,"Max Latency": 247.761
+					,"p50.00": 0.391
+					,"p99.00": 0.943
+					,"p99.90": 2.271
+					}
+				,"28":{
+					"Bytes RX": 1591720
+					,"Bytes TX": 176621448
+					,"Count": 318344
+					,"Average Latency": 0.313
+					,"Accumulated Latency": 99788
+					,"Min Latency": 0.027
+					,"Max Latency": 4.366
+					,"p50.00": 0.383
+					,"p99.00": 0.831
+					,"p99.90": 2.271
+					}
+				,"29":{
+					"Bytes RX": 1324855
+					,"Bytes TX": 147009647
+					,"Count": 264971
+					,"Average Latency": 0.371
+					,"Accumulated Latency": 98304
+					,"Min Latency": 0.024
+					,"Max Latency": 99.515
+					,"p50.00": 0.399
+					,"p99.00": 0.991
+					,"p99.90": 2.271
+					}
+				,"30":{
+					"Bytes RX": 751160
+					,"Bytes TX": 83351110
+					,"Count": 150232
+					,"Average Latency": 0.675
+					,"Accumulated Latency": 101415
+					,"Min Latency": 0.027
+					,"Max Latency": 279.140
+					,"p50.00": 0.375
+					,"p99.00": 0.903
+					,"p99.90": 268.287
+					}
+				,"31":{
+					"Bytes RX": 1046885
+					,"Bytes TX": 116165870
+					,"Count": 209377
+					,"Average Latency": 0.454
+					,"Accumulated Latency": 95030
+					,"Min Latency": 0.028
+					,"Max Latency": 285.449
+					,"p50.00": 0.399
+					,"p99.00": 0.943
+					,"p99.90": 1.775
+					}
+				,"32":{
+					"Bytes RX": 1386390
+					,"Bytes TX": 153837087
+					,"Count": 277278
+					,"Average Latency": 0.377
+					,"Accumulated Latency": 104631
+					,"Min Latency": 0.027
+					,"Max Latency": 148.072
+					,"p50.00": 0.391
+					,"p99.00": 0.911
+					,"p99.90": 2.655
+					}
+				,"33":{
+					"Bytes RX": 1439905
+					,"Bytes TX": 159775701
+					,"Count": 287981
+					,"Average Latency": 0.347
+					,"Accumulated Latency": 99810
+					,"Min Latency": 0.026
+					,"Max Latency": 61.025
+					,"p50.00": 0.391
+					,"p99.00": 0.871
+					,"p99.90": 2.911
+					}
+				,"34":{
+					"Bytes RX": 1444495
+					,"Bytes TX": 160285609
+					,"Count": 288899
+					,"Average Latency": 0.345
+					,"Accumulated Latency": 99803
+					,"Min Latency": 0.023
+					,"Max Latency": 70.650
+					,"p50.00": 0.391
+					,"p99.00": 0.935
+					,"p99.90": 3.119
+					}
+				,"35":{
+					"Bytes RX": 1219595
+					,"Bytes TX": 135328812
+					,"Count": 243919
+					,"Average Latency": 0.409
+					,"Accumulated Latency": 99821
+					,"Min Latency": 0.025
+					,"Max Latency": 102.594
+					,"p50.00": 0.391
+					,"p99.00": 1.031
+					,"p99.90": 2.319
+					}
+				,"36":{
+					"Bytes RX": 954190
+					,"Bytes TX": 105879169
+					,"Count": 190838
+					,"Average Latency": 0.523
+					,"Accumulated Latency": 99876
+					,"Min Latency": 0.020
+					,"Max Latency": 362.214
+					,"p50.00": 0.383
+					,"p99.00": 0.807
+					,"p99.90": 2.255
+					}
+				,"37":{
+					"Bytes RX": 991375
+					,"Bytes TX": 110005120
+					,"Count": 198275
+					,"Average Latency": 0.408
+					,"Accumulated Latency": 80824
+					,"Min Latency": 0.029
+					,"Max Latency": 174.494
+					,"p50.00": 0.391
+					,"p99.00": 0.919
+					,"p99.90": 2.127
+					}
+				,"38":{
+					"Bytes RX": 1284950
+					,"Bytes TX": 142581338
+					,"Count": 256990
+					,"Average Latency": 0.450
+					,"Accumulated Latency": 115577
+					,"Min Latency": 0.030
+					,"Max Latency": 298.620
+					,"p50.00": 0.399
+					,"p99.00": 1.055
+					,"p99.90": 2.023
+					}
+				,"39":{
+					"Bytes RX": 429360
+					,"Bytes TX": 47642812
+					,"Count": 85872
+					,"Average Latency": 1.202
+					,"Accumulated Latency": 103218
+					,"Min Latency": 0.023
+					,"Max Latency": 408.462
+					,"p50.00": 0.375
+					,"p99.00": 1.095
+					,"p99.90": 268.287
+					}
+				,"40":{
+					"Bytes RX": 1118405
+					,"Bytes TX": 124102374
+					,"Count": 223681
+					,"Average Latency": 0.332
+					,"Accumulated Latency": 74346
+					,"Min Latency": 0.029
+					,"Max Latency": 2.996
+					,"p50.00": 0.391
+					,"p99.00": 0.951
+					,"p99.90": 1.655
+					}
+				,"41":{
+					"Bytes RX": 1102990
+					,"Bytes TX": 122391824
+					,"Count": 220598
+					,"Average Latency": 0.568
+					,"Accumulated Latency": 125346
+					,"Min Latency": 0.029
+					,"Max Latency": 370.362
+					,"p50.00": 0.391
+					,"p99.00": 0.983
+					,"p99.90": 4.735
+					}
+				,"42":{
+					"Bytes RX": 698125
+					,"Bytes TX": 77465598
+					,"Count": 139625
+					,"Average Latency": 0.483
+					,"Accumulated Latency": 67404
+					,"Min Latency": 0.026
+					,"Max Latency": 231.234
+					,"p50.00": 0.367
+					,"p99.00": 0.863
+					,"p99.90": 3.583
+					}
+				,"43":{
+					"Bytes RX": 1055405
+					,"Bytes TX": 117110461
+					,"Count": 211081
+					,"Average Latency": 0.627
+					,"Accumulated Latency": 132335
+					,"Min Latency": 0.022
+					,"Max Latency": 529.219
+					,"p50.00": 0.399
+					,"p99.00": 1.015
+					,"p99.90": 2.703
+					}
+				,"44":{
+					"Bytes RX": 478445
+					,"Bytes TX": 53089343
+					,"Count": 95689
+					,"Average Latency": 0.863
+					,"Accumulated Latency": 82583
+					,"Min Latency": 0.027
+					,"Max Latency": 483.761
+					,"p50.00": 0.415
+					,"p99.00": 1.119
+					,"p99.90": 1.863
+					}
+				,"45":{
+					"Bytes RX": 1109620
+					,"Bytes TX": 123126430
+					,"Count": 221924
+					,"Average Latency": 0.528
+					,"Accumulated Latency": 117182
+					,"Min Latency": 0.027
+					,"Max Latency": 276.898
+					,"p50.00": 0.407
+					,"p99.00": 1.135
+					,"p99.90": 7.231
+					}
+				,"46":{
+					"Bytes RX": 761820
+					,"Bytes TX": 84533502
+					,"Count": 152364
+					,"Average Latency": 0.656
+					,"Accumulated Latency": 99893
+					,"Min Latency": 0.027
+					,"Max Latency": 352.632
+					,"p50.00": 0.383
+					,"p99.00": 0.983
+					,"p99.90": 149.503
+					}
+				,"47":{
+					"Bytes RX": 987430
+					,"Bytes TX": 109568433
+					,"Count": 197486
+					,"Average Latency": 0.384
+					,"Accumulated Latency": 75903
+					,"Min Latency": 0.027
+					,"Max Latency": 105.891
+					,"p50.00": 0.399
+					,"p99.00": 1.015
+					,"p99.90": 1.423
+					}
+				,"48":{
+					"Bytes RX": 1274570
+					,"Bytes TX": 141430811
+					,"Count": 254914
+					,"Average Latency": 0.486
+					,"Accumulated Latency": 123776
+					,"Min Latency": 0.023
+					,"Max Latency": 386.849
+					,"p50.00": 0.383
+					,"p99.00": 0.927
+					,"p99.90": 2.687
+					}
+				,"49":{
+					"Bytes RX": 1544300
+					,"Bytes TX": 171360433
+					,"Count": 308860
+					,"Average Latency": 0.323
+					,"Accumulated Latency": 99794
+					,"Min Latency": 0.027
+					,"Max Latency": 3.627
+					,"p50.00": 0.391
+					,"p99.00": 0.919
+					,"p99.90": 2.175
+					}
+				,"50":{
+					"Bytes RX": 663145
+					,"Bytes TX": 73584768
+					,"Count": 132629
+					,"Average Latency": 0.753
+					,"Accumulated Latency": 99893
+					,"Min Latency": 0.030
+					,"Max Latency": 537.549
+					,"p50.00": 0.407
+					,"p99.00": 1.103
+					,"p99.90": 3.295
+					}
+				,"51":{
+					"Bytes RX": 1099320
+					,"Bytes TX": 121983890
+					,"Count": 219864
+					,"Average Latency": 0.454
+					,"Accumulated Latency": 99844
+					,"Min Latency": 0.025
+					,"Max Latency": 295.816
+					,"p50.00": 0.383
+					,"p99.00": 0.895
+					,"p99.90": 1.263
+					}
+				,"52":{
+					"Bytes RX": 608760
+					,"Bytes TX": 67549431
+					,"Count": 121752
+					,"Average Latency": 0.660
+					,"Accumulated Latency": 80326
+					,"Min Latency": 0.022
+					,"Max Latency": 346.307
+					,"p50.00": 0.431
+					,"p99.00": 1.295
+					,"p99.90": 4.863
+					}
+				,"53":{
+					"Bytes RX": 1296990
+					,"Bytes TX": 143917107
+					,"Count": 259398
+					,"Average Latency": 0.460
+					,"Accumulated Latency": 119400
+					,"Min Latency": 0.025
+					,"Max Latency": 356.459
+					,"p50.00": 0.391
+					,"p99.00": 0.895
+					,"p99.90": 3.103
+					}
+				,"54":{
+					"Bytes RX": 1501815
+					,"Bytes TX": 166645632
+					,"Count": 300363
+					,"Average Latency": 0.332
+					,"Accumulated Latency": 99798
+					,"Min Latency": 0.026
+					,"Max Latency": 25.008
+					,"p50.00": 0.399
+					,"p99.00": 0.871
+					,"p99.90": 3.903
+					}
+				,"55":{
+					"Bytes RX": 1430725
+					,"Bytes TX": 158757606
+					,"Count": 286145
+					,"Average Latency": 0.349
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.026
+					,"Max Latency": 92.147
+					,"p50.00": 0.391
+					,"p99.00": 0.839
+					,"p99.90": 2.223
+					}
+				,"56":{
+					"Bytes RX": 1343000
+					,"Bytes TX": 149023091
+					,"Count": 268600
+					,"Average Latency": 0.372
+					,"Accumulated Latency": 99811
+					,"Min Latency": 0.024
+					,"Max Latency": 86.741
+					,"p50.00": 0.383
+					,"p99.00": 0.815
+					,"p99.90": 2.607
+					}
+				,"57":{
+					"Bytes RX": 1514260
+					,"Bytes TX": 168026578
+					,"Count": 302852
+					,"Average Latency": 0.330
+					,"Accumulated Latency": 99790
+					,"Min Latency": 0.026
+					,"Max Latency": 6.402
+					,"p50.00": 0.407
+					,"p99.00": 0.911
+					,"p99.90": 3.407
+					}
+				,"58":{
+					"Bytes RX": 1541020
+					,"Bytes TX": 170995975
+					,"Count": 308204
+					,"Average Latency": 0.324
+					,"Accumulated Latency": 99798
+					,"Min Latency": 0.025
+					,"Max Latency": 34.925
+					,"p50.00": 0.375
+					,"p99.00": 0.807
+					,"p99.90": 1.271
+					}
+				,"59":{
+					"Bytes RX": 1373030
+					,"Bytes TX": 152355671
+					,"Count": 274606
+					,"Average Latency": 0.363
+					,"Accumulated Latency": 99791
+					,"Min Latency": 0.025
+					,"Max Latency": 59.245
+					,"p50.00": 0.415
+					,"p99.00": 0.943
+					,"p99.90": 2.023
+					}
+				,"60":{
+					"Bytes RX": 500
+					,"Bytes TX": 55481
+					,"Count": 100
+					,"Average Latency": 1.418
+					,"Accumulated Latency": 141
+					,"Min Latency": 0.224
+					,"Max Latency": 2.671
+					,"p50.00": 2.063
+					,"p99.00": 2.063
+					,"p99.90": 2.063
+					}
+				}
+			,"Percentile Latencies":{
+				"p50.00": 0.303
+				,"p99.00": 0.783
+				,"p99.90": 2.063
+				,"Histogram log format":{
+					"Compressed Histogram": "HISTFAAABD94nC2Sf0hbVxTHPef9yMtrjPGZxTR9plmMaUxeUwlBRCQLgYXSdkOKuCFsyBj+sXVDpPSPUkomWeZSEWedZC6zrpPgqrgsZM6JC+KCy5zNnIhzmZMgokE656yzEkV2S3fh3MP93u/5HO4P0X+3pKCAfrPg2cD/M/90Kv/BW/DC7jOBMo2zx4Zc42EE9j/H8SUqNc0E/pDtDvLHdwrzAVU8XBJ5T7O9ox378UznUdnwiCE8Yuw6Kg+MVvj/Mh9+aJn52zK3X9l/ZB3/2pZ7bGsfkWZHpMz30lhSOvhOmpqWdoal4BPbYtI2dM+Wylnzn1g7NyqH1i2j/5xL/GyOfFmR2ioPTRlnsobsZ2e3fy1buiNGk7rgE217sjTbo0kvq/OxkgchIbGnWtgtWvldGfmtMJJV+LdOrZ7wiX5+7xt5eINb/IiLT8v6HrO+GDu6z6QTTHeACT2k9+7R8X+puV+o+SEq/T41uYX+h7gaw9inOBvArj1I/Ql9P8FoAtJfQeALyNyF5AfQc3vleu6deEv4tfgryfqxy0verKfdNVEzWT3n8F2YO79a2XNuzhyt6Ctfe37hbFbMlPl0udP50m3No9Lgc2Pq5ZK8sFrSLhwUB4r3VCfKYFFUGVf2KHsL84XdiolTiVOTfJrPy+fl6/Je3i/f5OLcpiwiG5Dtsl2yfbaDnWR9bJo5YPrYCNPN7ND36UP6PuOnE/QoHaF76VlqmkpS3VQGpzCPSzhIzWM3buIMnsAexDGOPtyGRfDjIizDMWTgaZ6FebKbgQD24wpRQpiCJcjBLpxAJ4ZxA/qxC9tJbQBDeAyjxDeIadwhrmlYIZwYcQVJj27swQykIQspwpuCTRiAMYjABCzAGuzjBLWNQ9Q6qV3ALiqHPipNIoq9VBxj6MdZXMUOag6jpEMeBnGNkHbgENZhAx4R0jyME+4ByUnCHIB+onXAMNwKwfXmHvDD7Za2tmvX3mrxNtU3NHtartS/8XJtk8tZVeW0XHI3emoueRsbX73Y6PA63NW1XrvLa9I53aLVblE5qkxmq95uVuk0Wp1V0Og1ZrvebnBZ9WpBUktWR03tTYe7/mZz242Wq62tF93VTpddEkVR4JUqJSCrU4ui2WSpM+k5q9Zo0Ao6nmcVNNCAiDTPKxQKQadQqHglCYNVJegFmmV5oBn6W6QVwBlZpI0czZnUSvYllcXl0HLnFWqTaNFxnIDI0PraaqOADO9xi3osrW02c0XobjahOAiKCw2tdKXOadcZBF4wuquV7Gl7nVvDATZ5dTzK+CsuQWTPsD7wlPSCswjfvcrKyYItrG80AhcCC0XzNzzs65Y6FqQA6MNgYIJgV12mb3nYSmeDOwaasrpOkD8A/dtZcu9YGgVtWXMUmSnyAhKVAtky1tomQEU+BZck504BFQZJjgNgKa4KwYvWAajoADfRP1an4D8k6oWe"
+					}
+				}
+			}
+		,"CPU Stats":{
+			"1":{
+				"Main Thread": 0.00
+				,"Thread 0": 85.28
+				,"Thread 1": 84.73
+				,"Thread 2": 85.61
+				,"Thread 3": 86.63
+				}
+			,"2":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.86
+				,"Thread 1": 88.92
+				,"Thread 2": 89.17
+				,"Thread 3": 89.06
+				}
+			,"3":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.94
+				,"Thread 1": 89.20
+				,"Thread 2": 89.54
+				,"Thread 3": 89.55
+				}
+			,"4":{
+				"Main Thread": 0.00
+				,"Thread 0": 89.81
+				,"Thread 1": 89.53
+				,"Thread 2": 89.74
+				,"Thread 3": 90.03
+				}
+			,"5":{
+				"Main Thread": 0.00
+				,"Thread 0": 89.43
+				,"Thread 1": 89.68
+				,"Thread 2": 90.42
+				,"Thread 3": 91.29
+				}
+			,"6":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.88
+				,"Thread 1": 89.79
+				,"Thread 2": 89.58
+				,"Thread 3": 92.16
+				}
+			,"7":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.17
+				,"Thread 1": 88.53
+				,"Thread 2": 89.12
+				,"Thread 3": 88.75
+				}
+			,"8":{
+				"Main Thread": 0.00
+				,"Thread 0": 89.13
+				,"Thread 1": 88.85
+				,"Thread 2": 88.30
+				,"Thread 3": 90.67
+				}
+			,"9":{
+				"Main Thread": 0.01
+				,"Thread 0": 88.46
+				,"Thread 1": 90.06
+				,"Thread 2": 88.48
+				,"Thread 3": 89.75
+				}
+			,"10":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.42
+				,"Thread 1": 89.73
+				,"Thread 2": 89.73
+				,"Thread 3": 90.07
+				}
+			,"11":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.28
+				,"Thread 1": 88.95
+				,"Thread 2": 89.25
+				,"Thread 3": 89.00
+				}
+			,"12":{
+				"Main Thread": 0.01
+				,"Thread 0": 89.25
+				,"Thread 1": 89.80
+				,"Thread 2": 90.18
+				,"Thread 3": 89.32
+				}
+			,"13":{
+				"Main Thread": 0.01
+				,"Thread 0": 88.95
+				,"Thread 1": 89.02
+				,"Thread 2": 90.40
+				,"Thread 3": 89.11
+				}
+			,"14":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.94
+				,"Thread 1": 87.96
+				,"Thread 2": 90.00
+				,"Thread 3": 89.22
+				}
+			,"15":{
+				"Main Thread": 0.00
+				,"Thread 0": 88.13
+				,"Thread 1": 88.71
+				,"Thread 2": 89.26
+				,"Thread 3": 88.33
+				}
+			,"16":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.64
+				,"Thread 1": 88.43
+				,"Thread 2": 88.27
+				,"Thread 3": 87.58
+				}
+			,"17":{
+				"Main Thread": 0.00
+				,"Thread 0": 84.69
+				,"Thread 1": 85.29
+				,"Thread 2": 85.38
+				,"Thread 3": 85.21
+				}
+			,"18":{
+				"Main Thread": 0.01
+				,"Thread 0": 87.79
+				,"Thread 1": 89.06
+				,"Thread 2": 88.56
+				,"Thread 3": 88.09
+				}
+			,"19":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.02
+				,"Thread 1": 88.33
+				,"Thread 2": 87.23
+				,"Thread 3": 88.77
+				}
+			,"20":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.72
+				,"Thread 1": 88.17
+				,"Thread 2": 88.82
+				,"Thread 3": 88.85
+				}
+			,"21":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.54
+				,"Thread 1": 87.73
+				,"Thread 2": 87.87
+				,"Thread 3": 88.81
+				}
+			,"22":{
+				"Main Thread": 0.01
+				,"Thread 0": 82.32
+				,"Thread 1": 82.28
+				,"Thread 2": 84.08
+				,"Thread 3": 82.63
+				}
+			,"23":{
+				"Main Thread": 0.00
+				,"Thread 0": 79.95
+				,"Thread 1": 81.61
+				,"Thread 2": 82.41
+				,"Thread 3": 81.61
+				}
+			,"24":{
+				"Main Thread": 0.00
+				,"Thread 0": 83.39
+				,"Thread 1": 86.23
+				,"Thread 2": 86.02
+				,"Thread 3": 84.99
+				}
+			,"25":{
+				"Main Thread": 0.01
+				,"Thread 0": 64.00
+				,"Thread 1": 64.55
+				,"Thread 2": 65.56
+				,"Thread 3": 65.42
+				}
+			,"26":{
+				"Main Thread": 0.01
+				,"Thread 0": 84.61
+				,"Thread 1": 85.53
+				,"Thread 2": 85.03
+				,"Thread 3": 85.53
+				}
+			,"27":{
+				"Main Thread": 0.01
+				,"Thread 0": 76.63
+				,"Thread 1": 76.68
+				,"Thread 2": 76.37
+				,"Thread 3": 76.53
+				}
+			,"28":{
+				"Main Thread": 0.01
+				,"Thread 0": 61.01
+				,"Thread 1": 62.60
+				,"Thread 2": 61.25
+				,"Thread 3": 61.97
+				}
+			,"29":{
+				"Main Thread": 0.01
+				,"Thread 0": 87.70
+				,"Thread 1": 88.08
+				,"Thread 2": 88.10
+				,"Thread 3": 87.75
+				}
+			,"30":{
+				"Main Thread": 0.00
+				,"Thread 0": 78.13
+				,"Thread 1": 78.53
+				,"Thread 2": 79.15
+				,"Thread 3": 78.66
+				}
+			,"31":{
+				"Main Thread": 0.00
+				,"Thread 0": 41.06
+				,"Thread 1": 40.76
+				,"Thread 2": 41.06
+				,"Thread 3": 40.96
+				}
+			,"32":{
+				"Main Thread": 0.01
+				,"Thread 0": 57.90
+				,"Thread 1": 57.58
+				,"Thread 2": 58.57
+				,"Thread 3": 58.40
+				}
+			,"33":{
+				"Main Thread": 0.00
+				,"Thread 0": 77.92
+				,"Thread 1": 77.85
+				,"Thread 2": 79.20
+				,"Thread 3": 78.48
+				}
+			,"34":{
+				"Main Thread": 0.00
+				,"Thread 0": 81.40
+				,"Thread 1": 83.58
+				,"Thread 2": 84.22
+				,"Thread 3": 82.14
+				}
+			,"35":{
+				"Main Thread": 0.00
+				,"Thread 0": 81.08
+				,"Thread 1": 80.30
+				,"Thread 2": 82.60
+				,"Thread 3": 81.10
+				}
+			,"36":{
+				"Main Thread": 0.00
+				,"Thread 0": 68.26
+				,"Thread 1": 68.07
+				,"Thread 2": 70.02
+				,"Thread 3": 69.39
+				}
+			,"37":{
+				"Main Thread": 0.00
+				,"Thread 0": 51.17
+				,"Thread 1": 51.91
+				,"Thread 2": 52.71
+				,"Thread 3": 53.13
+				}
+			,"38":{
+				"Main Thread": 0.01
+				,"Thread 0": 55.21
+				,"Thread 1": 55.29
+				,"Thread 2": 56.04
+				,"Thread 3": 56.38
+				}
+			,"39":{
+				"Main Thread": 0.01
+				,"Thread 0": 73.25
+				,"Thread 1": 74.39
+				,"Thread 2": 75.22
+				,"Thread 3": 74.80
+				}
+			,"40":{
+				"Main Thread": 0.01
+				,"Thread 0": 24.29
+				,"Thread 1": 24.53
+				,"Thread 2": 24.35
+				,"Thread 3": 24.75
+				}
+			,"41":{
+				"Main Thread": 0.01
+				,"Thread 0": 63.05
+				,"Thread 1": 64.21
+				,"Thread 2": 63.94
+				,"Thread 3": 65.53
+				}
+			,"42":{
+				"Main Thread": 0.01
+				,"Thread 0": 62.08
+				,"Thread 1": 62.64
+				,"Thread 2": 64.64
+				,"Thread 3": 63.14
+				}
+			,"43":{
+				"Main Thread": 0.01
+				,"Thread 0": 38.00
+				,"Thread 1": 38.21
+				,"Thread 2": 38.82
+				,"Thread 3": 38.32
+				}
+			,"44":{
+				"Main Thread": 0.00
+				,"Thread 0": 61.15
+				,"Thread 1": 60.79
+				,"Thread 2": 61.66
+				,"Thread 3": 62.25
+				}
+			,"45":{
+				"Main Thread": 0.01
+				,"Thread 0": 27.92
+				,"Thread 1": 27.60
+				,"Thread 2": 27.76
+				,"Thread 3": 28.07
+				}
+			,"46":{
+				"Main Thread": 0.01
+				,"Thread 0": 65.64
+				,"Thread 1": 66.58
+				,"Thread 2": 66.23
+				,"Thread 3": 67.20
+				}
+			,"47":{
+				"Main Thread": 0.01
+				,"Thread 0": 41.37
+				,"Thread 1": 42.51
+				,"Thread 2": 42.43
+				,"Thread 3": 42.88
+				}
+			,"48":{
+				"Main Thread": 0.01
+				,"Thread 0": 56.29
+				,"Thread 1": 56.66
+				,"Thread 2": 56.71
+				,"Thread 3": 56.58
+				}
+			,"49":{
+				"Main Thread": 0.01
+				,"Thread 0": 72.25
+				,"Thread 1": 73.18
+				,"Thread 2": 73.73
+				,"Thread 3": 73.26
+				}
+			,"50":{
+				"Main Thread": 0.01
+				,"Thread 0": 88.97
+				,"Thread 1": 89.53
+				,"Thread 2": 88.80
+				,"Thread 3": 89.32
+				}
+			,"51":{
+				"Main Thread": 0.00
+				,"Thread 0": 39.67
+				,"Thread 1": 40.02
+				,"Thread 2": 40.29
+				,"Thread 3": 39.87
+				}
+			,"52":{
+				"Main Thread": 0.01
+				,"Thread 0": 61.70
+				,"Thread 1": 61.52
+				,"Thread 2": 62.60
+				,"Thread 3": 62.28
+				}
+			,"53":{
+				"Main Thread": 0.01
+				,"Thread 0": 35.54
+				,"Thread 1": 36.44
+				,"Thread 2": 36.00
+				,"Thread 3": 36.39
+				}
+			,"54":{
+				"Main Thread": 0.01
+				,"Thread 0": 75.01
+				,"Thread 1": 75.63
+				,"Thread 2": 75.81
+				,"Thread 3": 75.53
+				}
+			,"55":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.18
+				,"Thread 1": 86.47
+				,"Thread 2": 86.37
+				,"Thread 3": 86.80
+				}
+			,"56":{
+				"Main Thread": 0.00
+				,"Thread 0": 79.77
+				,"Thread 1": 80.21
+				,"Thread 2": 80.38
+				,"Thread 3": 80.53
+				}
+			,"57":{
+				"Main Thread": 0.00
+				,"Thread 0": 75.77
+				,"Thread 1": 77.22
+				,"Thread 2": 77.06
+				,"Thread 3": 76.41
+				}
+			,"58":{
+				"Main Thread": 0.00
+				,"Thread 0": 87.46
+				,"Thread 1": 87.02
+				,"Thread 2": 88.70
+				,"Thread 3": 87.62
+				}
+			,"59":{
+				"Main Thread": 0.00
+				,"Thread 0": 86.24
+				,"Thread 1": 87.06
+				,"Thread 2": 87.86
+				,"Thread 3": 87.27
+				}
+			,"60":{
+				"Main Thread": 0.00
+				,"Thread 0": 0.00
+				,"Thread 1": 0.00
+				,"Thread 2": 0.00
+				,"Thread 3": 0.00
+				}
+			}
+		}
+	}

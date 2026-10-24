@@ -1,0 +1,67 @@
+=== datadam (fit: 1000000 keys x 512 B, memory limit 2g)
+  load (first): loaded=1000000 errors=0 seconds=2.6 first_error=''
+  after_load: memory 868.4MiB, disk 547 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       486399.62    486399.62         0.00         4.28912         0.18300         0.50300         0.70300    263096.33 
+  read-uniform Totals     486399.62    486399.62         0.00         4.28912         0.18300         0.50300         0.70300    263096.33 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       481709.48    481709.48         0.00         3.28966         0.18300         0.51100         0.66300    260609.00 
+  read-gaussian Totals     481709.48    481709.48         0.00         3.28966         0.18300         0.51100         0.66300    260609.00 
+  load (mixed-gaussian): loaded=1000000 errors=0 seconds=4.1 first_error=''
+  mixed-gaussian Sets        88733.18          ---          ---         4.98525         0.19900         0.56700         0.76700     48438.71 
+  mixed-gaussian Gets       354929.42    354929.42         0.00         4.68797         0.19100         0.54300         0.73500    192019.85 
+  mixed-gaussian Totals     443662.60    354929.42         0.00         4.74742         0.19100         0.54300         0.74300    240458.55 
+  load (mixed-gaussian-p16): loaded=1000000 errors=0 seconds=2.7 first_error=''
+  mixed-gaussian-p16 Sets       338917.72          ---          ---        17.12923         0.90300         1.83100         2.68700    185012.20 
+  mixed-gaussian-p16 Gets      1355667.49   1355667.49         0.00        17.12559         0.91100         1.83100         2.67100    733427.83 
+  mixed-gaussian-p16 Totals    1694585.21   1355667.49         0.00        17.12632         0.91100         1.83100         2.68700    918440.03 
+  load (write-uniform): loaded=1000000 errors=0 seconds=2.7 first_error=''
+  write-uniform Sets       298454.64          ---          ---         7.05695         0.33500         0.63900         1.07100    162893.19 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     298454.64         0.00         0.00         7.05695         0.33500         0.63900         1.07100    162893.19 
+  end: memory 872.4MiB, disk 678 MB
+=== redis (fit: 1000000 keys x 512 B, memory limit 2g)
+  load (first): loaded=1000000 errors=0 seconds=2.8 first_error=''
+  after_load: memory 684.7MiB, disk 511 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       422080.73    422080.73         0.00         4.99020         0.23100         0.51100         0.83900    228306.01 
+  read-uniform Totals     422080.73    422080.73         0.00         4.99020         0.23100         0.51100         0.83900    228306.01 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       418673.15    418673.15         0.00         5.00686         0.23100         0.51900         0.87100    226505.80 
+  read-gaussian Totals     418673.15    418673.15         0.00         5.00686         0.23100         0.51900         0.87100    226505.80 
+  load (mixed-gaussian): loaded=1000000 errors=0 seconds=2.5 first_error=''
+  mixed-gaussian Sets        75055.19          ---          ---         5.88070         0.27100         0.58300         1.02300     40972.00 
+  mixed-gaussian Gets       300217.39    300217.39         0.00         5.54557         0.26300         0.58300         1.01500    162420.19 
+  mixed-gaussian Totals     375272.58    300217.39         0.00         5.61259         0.26300         0.58300         1.01500    203392.18 
+  load (mixed-gaussian-p16): loaded=1000000 errors=0 seconds=2.6 first_error=''
+  mixed-gaussian-p16 Sets       219252.42          ---          ---        16.13837         1.33500         3.24700        11.90300    119688.00 
+  mixed-gaussian-p16 Gets       877005.94    877005.94         0.00        16.34038         1.34300         3.24700        11.83900    474467.74 
+  mixed-gaussian-p16 Totals    1096258.35    877005.94         0.00        16.29998         1.34300         3.24700        11.83900    594155.74 
+  load (write-uniform): loaded=1000000 errors=0 seconds=2.7 first_error=''
+  write-uniform Sets       294868.56          ---          ---         7.14301         0.32700         0.79100         5.66300    160935.92 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     294868.56         0.00         0.00         7.14301         0.32700         0.79100         5.66300    160935.92 
+  end: memory 792.8MiB, disk 850 MB
+=== kvrocks (fit: 1000000 keys x 512 B, memory limit 2g)
+  load (first): loaded=1000000 errors=0 seconds=4.8 first_error=''
+  after_load: memory 67.24MiB, disk 1128 MB
+  read-uniform Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-uniform Gets       462676.28    462676.28         0.00         4.53070         0.18300         0.59900         0.77500    250264.31 
+  read-uniform Totals     462676.28    462676.28         0.00         4.53070         0.18300         0.59900         0.77500    250264.31 
+  read-gaussian Sets            0.00          ---          ---             ---             ---             ---             ---         0.00 
+  read-gaussian Gets       441534.82    441534.82         0.00         4.74759         0.19900         0.62300         0.81500    238874.16 
+  read-gaussian Totals     441534.82    441534.82         0.00         4.74759         0.19900         0.62300         0.81500    238874.16 
+  load (mixed-gaussian): loaded=1000000 errors=0 seconds=4.7 first_error=''
+  mixed-gaussian Sets        76322.75          ---          ---         5.52619         0.23100         0.71900         1.07900     41663.95 
+  mixed-gaussian Gets       305287.69    305287.69         0.00         5.48470         0.22300         0.70300         1.05500    165163.25 
+  mixed-gaussian Totals     381610.44    305287.69         0.00         5.49300         0.23100         0.71100         1.06300    206827.20 
+  load (mixed-gaussian-p16): loaded=1000000 errors=0 seconds=6.0 first_error=''
+  mixed-gaussian-p16 Sets       174415.65          ---          ---        15.69020         1.63100         4.89500        11.19900     95212.00 
+  mixed-gaussian-p16 Gets       697659.31    697659.31         0.00        15.21897         1.63900         4.89500        11.07100    377439.72 
+  mixed-gaussian-p16 Totals     872074.96    697659.31         0.00        15.31321         1.63900         4.89500        11.13500    472651.72 
+  load (write-uniform): loaded=1000000 errors=0 seconds=3.6 first_error=''
+  write-uniform Sets       280003.89          ---          ---         7.47561         0.31900         0.73500         1.46300    152823.02 
+  write-uniform Gets            0.00         0.00         0.00             ---             ---             ---             ---         0.00 
+  write-uniform Totals     280003.89         0.00         0.00         7.47561         0.31900         0.73500         1.46300    152823.02 
+  end: memory 416.6MiB, disk 10366 MB
+results in bench/results/fit-20261022-161636
