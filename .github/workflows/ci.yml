@@ -84,21 +84,25 @@ jobs:
           git -C $env:VCPKG_ROOT checkout -q FETCH_HEAD
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
           New-Item -ItemType Directory -Force "C:\dd\vcpkg-cache" | Out-Null
+          # vcpkg's package hashes include the compiler's, which changes with
+          # the runner image: one cache per image version.
+          "DEPS_KEY=vcpkg-windows-$env:ImageVersion-$env:VCPKG_COMMIT" | Out-File -Append $env:GITHUB_ENV
 
       - name: Restore built dependencies
         id: deps-cache
         uses: actions/cache/restore@v4
         with:
           path: C:\dd\vcpkg-cache
-          key: vcpkg-windows-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: vcpkg-windows-${{ env.VCPKG_COMMIT }}-
+          key: ${{ env.DEPS_KEY }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: ${{ env.DEPS_KEY }}-
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
+      # Release-only dependencies: CI builds the Release configuration only.
       - name: Configure (installs the dependencies)
-        run: cmake --preset windows
+        run: cmake --preset windows -DVCPKG_TARGET_TRIPLET=x64-windows-release
 
       # Saved right after the install, so a failing build or test does not
       # throw the built dependencies away.
@@ -107,7 +111,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: C:\dd\vcpkg-cache
-          key: vcpkg-windows-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          key: ${{ env.DEPS_KEY }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Build
         run: cmake --build --preset windows-release

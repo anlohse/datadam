@@ -244,8 +244,11 @@ by hand (`workflow_dispatch`); a newer push to the same branch cancels the run i
 | Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh` and `tests/docker_sentinel_test.sh` against it. |
 | Windows | `windows-2022` | Fetches vcpkg at the manifest's baseline, configures with the `windows` preset in a VS developer environment (`ilammy/msvc-dev-cmd`), builds `windows-release` and runs `ctest`. |
 
-The first run builds every dependency (RocksDB is the slow one) and takes much longer than the next ones. The
-cache is keyed by the vcpkg commit and the hash of `vcpkg.json`, and is saved right after the dependencies are
+The first run builds every dependency (RocksDB is the slow one) and takes much longer than the next ones. On
+Windows the dependencies are built for the `x64-windows-release` triplet (CI builds Release only), and the
+cache key includes the runner image version (`ImageVersion`): vcpkg's package hashes include the compiler's,
+which changes with the image, so each new image costs one rebuild. The cache is keyed by the vcpkg commit and
+the hash of `vcpkg.json` too, and is saved right after the dependencies are
 built, so a failing build or test does not throw it away. On Linux, the `deps` layer is built and exported in
 a step of its own for the same reason. Changing `vcpkg.json` (or the baseline, which must move in
 `vcpkg.json`, the Dockerfile's `VCPKG_COMMIT` and the workflow's `VCPKG_COMMIT` together) rebuilds them.
