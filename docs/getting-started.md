@@ -106,7 +106,17 @@ The runtime image:
   file) and `/var/lib/datadam`;
 - declares `/var/lib/datadam` as a volume and exposes ports 6379 and 11211;
 - has the entry point `datadam /etc/datadam/datadam.conf --dir /var/lib/datadam`, so arguments given to
-  `docker run` after the image name are appended as further `--option value` overrides.
+  `docker run` after the image name are appended as further `--option value` overrides;
+- turns [protected mode](security.md#protected-mode) off, as the Redis image does: set `requirepass` before
+  publishing a port on an untrusted network.
+
+CI publishes the image of every commit on `main` that passes all the tests to the GitHub Container Registry,
+as `ghcr.io/anlohse/datadam:latest` and `ghcr.io/anlohse/datadam:sha-<commit>`:
+
+```bash
+docker run -d --name datadam -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:latest \
+  --requirepass s3cret
+```
 
 ```bash
 docker run -d --name datadam -p 6379:6379 -p 11211:11211 -v datadam-data:/var/lib/datadam datadam

@@ -86,6 +86,7 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 | Option | Type | Default | Runtime | Description |
 |---|---|---|---|---|
 | `bind` | IP address | `0.0.0.0` | no | Address every listener binds to (Redis, TLS and memcache). One literal IPv4 or IPv6 address; host names are not resolved. |
+| `protected-mode` | boolean | `yes` (`no` in the Docker image) | yes | While the `default` user needs no password, refuse clients that are not on the loopback interface (TLS clients with a verified certificate pass). See [Security](security.md#protected-mode). |
 | `port` | 0–65535 | `6379` | no | Plain-text Redis protocol port. `0` disables it, which requires `tls-port`. |
 | `memcache-port` | 0–65535 | `11211` | no | memcache text protocol port. `0` disables it. |
 | `io-threads` | 1–1024 | `4` | no | Threads that run the network event loop and execute commands. |
@@ -282,7 +283,7 @@ The options it accepts are the ones marked "Runtime: yes" above: `fsync`, `write
 `rocksdb-block-cache`, `rocksdb-write-buffer`, `cache-min-memory`, `cache-max-idle`, `cache-max-age`,
 `cache-on-write`, `cache-admission`, `log-level`, `requirepass`, `acllog-max-len`, `masteruser`,
 `masterauth`, `backup-dir`, `backup-keep`, `slowlog-log-slower-than`, `slowlog-max-len`, `replica-priority`,
-and every `tls-*` option except `tls-port`.
+`protected-mode`, and every `tls-*` option except `tls-port`.
 
 Errors:
 

@@ -38,6 +38,10 @@ struct Config {
   // its certificate against tls-ca-cert-file (or the system's CAs) and the host
   // name, and presents tls-client-cert-file (default: tls-cert-file) if it has one.
   bool tls_replication = false;
+  // Protected mode (as in Redis): while the default user needs no password,
+  // only loopback clients may connect (TLS clients with a verified
+  // certificate too).
+  bool protected_mode = true;
   std::string tls_client_cert_file;
   std::string tls_client_key_file;
   unsigned io_threads = 4;

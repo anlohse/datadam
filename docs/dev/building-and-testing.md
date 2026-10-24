@@ -229,7 +229,9 @@ image on a private Docker network and tests it with `redis-cli` from the `redis:
    `--tls-port 6380 ... --tls-auth-clients-user cn`, runs the whole `commands` phase over TLS (`CLI_OPTS`), and
    checks refusals, CN login and ACL LOG;
 4. replication: a third container with `--replicaof` the first, checking full sync, streamed writes,
-   `READONLY`, `ROLE`, `INFO replication` and promotion with `REPLICAOF NO ONE`.
+   `READONLY`, `ROLE`, `INFO replication` and promotion with `REPLICAOF NO ONE`;
+5. protected mode: a container with `--protected-mode yes` refuses redis-cli and memcache clients from the
+   Docker network, and lets them in once it has a `requirepass`.
 
 It needs Docker, `openssl` on the host and the image built first (`docker build -t datadam .`). Under Git Bash
 on Windows it sets `MSYS_NO_PATHCONV=1` so volume paths are not rewritten.
@@ -241,7 +243,7 @@ by hand (`workflow_dispatch`); a newer push to the same branch cancels the run i
 
 | Job | Runner | What it does |
 |---|---|---|
-| Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh` and `tests/docker_sentinel_test.sh` against it. |
+| Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh` and `tests/docker_sentinel_test.sh` against it. On a push to `main` that passed all of it, publishes the image to `ghcr.io/<owner>/datadam` as `latest` and `sha-<short commit>`. |
 | Windows | `windows-2022` | Fetches vcpkg at the manifest's baseline, configures with the `windows` preset in a VS developer environment (`ilammy/msvc-dev-cmd`), builds `windows-release` and runs `ctest`. |
 
 The first run builds every dependency (RocksDB is the slow one) and takes much longer than the next ones. On
@@ -263,15 +265,21 @@ alone in a container with a hard memory limit. Results and methodology are in
 
 | Script | Usage |
 |---|---|
-| [memtier.sh](../../bench/memtier.sh) | `bench/memtier.sh <fit\|big> [server ...]` (servers: `datadam redis kvrocks`). `fit`: 1M keys of 512 B in 2 GB containers; `big`: 6M keys in 1 GB containers. Env: `KEYS`, `DATA`, `MEM`, `TIME`, `SEEDS` (`same`, memtier's default, or `distinct`). Results go to `bench/results/<scenario>-<time>/` |
+| [memtier.sh](../../bench/memtier.sh) | `bench/memtier.sh <fit\|big> [server ...]` (servers: `datadam redis kvrocks`). `fit`: 1M keys of 512 B in 2 GB containers; `big`: 6M keys in 1 GB containers. Env: `KEYS`, `DATA`, `MEM`, `TIME`, `SEEDS` (`same`, memtier's default, or `distinct`), `DATADAM_IMAGE` (default `datadam:latest`, to compare two builds). Results go to `bench/results/<scenario>-<time>/` |
 | [load_random.py](../../bench/load_random.py) | `python load_random.py <host> <port> <keys> <value-bytes> [processes]`: loads incompressible random values (memtier's own random data compresses almost entirely) |
 | [report.py](../../bench/report.py) | `python bench/report.py bench/results/<dir>`: tables from a results directory |
 | [repro_tail.sh](../../bench/repro_tail.sh) | `bench/repro_tail.sh [image] [workload args...]`: one workload against one image, then what the server saw (batch conflicts, cache, RocksDB stalls) |
+| [profile.sh](../../bench/profile.sh) | `bench/profile.sh [image] [workload args...]`: one memtier workload (default: uniform writes) while `perf` samples the server from a privileged sidecar container in its PID namespace; prints the hottest symbols. Needs a `perf-tools` image (Ubuntu 24.04 with `linux-tools-generic`) |
 
 Things learned the hard way: use `SEEDS=distinct` (with the default, all clients ask for the same keys in
 lockstep); only compare servers measured in the same run, since Docker Desktop's disk is cached by the host and
 varies a lot between runs; ignore memtier's reported maximum latency and use percentiles; and diagnose on the
-server side with `CONFIG RESETSTAT` before a run and `INFO latency` after it.
+server side with `CONFIG RESETSTAT` before a run and `INFO latency` after it. To compare two builds, tag the
+older image (`docker tag datadam:latest datadam:pre`) and alternate them in the same window
+(`DATADAM_IMAGE=datadam:pre bench/memtier.sh ...`, then the new one, and again). Write-heavy workloads on that
+disk can be limited by RocksDB's memtable flush: the data directory's `LOG` then shows "Stalling writes because
+we have 3 immutable memtables (waiting for flush)", and the server's `storage_write_usec` p99 jumps to
+milliseconds.
 
 ## Debugging tips
 

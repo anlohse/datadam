@@ -57,6 +57,8 @@ class ServerContext {
   std::atomic<bool> writes_paused{false};
   // A new connection must log in (the default user has a password or is off).
   std::atomic<bool> auth_required;
+  // protected-mode: see protected_mode_refuses.
+  std::atomic<bool> protected_mode;
   // Loads keys for reads deferred off the I/O threads; set by the Server
   // while it runs (null: reads go to disk on the I/O thread).
   ReadPool* read_pool = nullptr;
@@ -161,6 +163,17 @@ struct ClientState {
 
 // Logs a fresh connection in as the default user when it needs no password.
 void start_session(ServerContext& ctx, ClientState& client);
+// protected-mode: a connection from `peer` (an IP address) is refused while
+// the default user needs no password, unless it comes from the loopback
+// interface. A TLS connection with a verified client certificate passes too.
+bool protected_mode_refuses(const ServerContext& ctx, std::string_view peer, bool verified_certificate = false);
+inline constexpr std::string_view kProtectedModeError =
+    "DENIED datadam is running in protected mode because protected mode is enabled and no password is set for "
+    "the default user. In this mode connections are only accepted from the loopback interface. To accept "
+    "connections from other computers, do one of these: 1) set a password for the default user (requirepass, "
+    "or ACL SETUSER default); 2) disable protected mode with 'CONFIG SET protected-mode no' from the loopback "
+    "interface (and CONFIG REWRITE to keep it), making sure datadam is not reachable from the internet; 3) "
+    "start the server with '--protected-mode no', or set 'protected-mode no' in its configuration file.";
 // CLIENT LIST style description of a connection (also used by ACL LOG).
 std::string client_info(const ClientState& client);
 // Copies what CLIENT LIST shows of a connection (name, user...) to its entry.

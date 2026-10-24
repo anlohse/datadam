@@ -29,7 +29,7 @@ asynchronous `BLOCK` of `CDC.READ`. Most of the code is in [database.h](../../sr
 
 | Lock | Where | Protects | Held for |
 |---|---|---|---|
-| World lock (shared / exclusive) | `KeyLocks` (`readers_`, `writer_`, `writers_`) | The whole keyspace | Shared: while a thread holds any stripe. Exclusive: a Lua script, or an `EXEC` that touches keys it does not name |
+| World lock (shared / exclusive) | `KeyLocks` (`readers_` slots, `writer_`, `writers_`) | The whole keyspace | Shared: while a thread holds any stripe. Exclusive: a Lua script, or an `EXEC` that touches keys it does not name |
 | Key stripe (`std::mutex`, 4096 of them) | `KeyLocks` in [key_locks.h](../../src/db/key_locks.h), owned by `Database` | One or more keys: the RocksDB record and its cache entry | A write until its batch commits; a cache-miss read until the cache is filled |
 | Script engine mutex | `ScriptEngine::mu_` ([scripting.h](../../src/server/scripting.h)) | The Lua state, the script cache, the function libraries | One script run, or one `SCRIPT` / `FUNCTION` command |
 | UNIQUE index mutex | `IndexRegistry::Index::unique_mu` ([index_registry.h](../../src/index/index_registry.h)) | The check-then-write of a UNIQUE value | Until the writing batch commits |
@@ -67,10 +67,15 @@ reverse; `lock_keys` and `lock_all` build one.
 Over the stripes sits a reader-writer lock on the whole keyspace. A thread takes it shared when it goes from
 holding no stripe to holding one (`lock`, `try_lock` and `spin_try_lock` do it on that transition, tracked in a
 thread-local `Holding` slot per `KeyLocks`), and releases it with its last stripe. So it costs one atomic
-increment and decrement per batch of stripes, not per stripe.
+increment and decrement per batch of stripes, not per stripe. The count is spread over `kReaderSlots` = 64
+counters (`ReaderSlot`, one per cache line); each thread keeps the one it was given on first use. With a single
+counter, every I/O thread would write the same cache line for every batch, which on a machine with many
+cores turns into a bottleneck of its own.
 
 `lock_world()` takes it exclusively: it must be called holding no stripe (`ExecScope` commits the batch
-first). It takes `writers_` (one owner at a time), sets `writer_`, and waits until `readers_` drops to 0;
+first). It takes `writers_` (one owner at a time), sets `writer_`, and waits until every reader slot drops
+to 0, one after the other (a reader that comes in after its slot was seen empty sees `writer_` and steps
+back, so one pass is enough);
 both waits spin first (`kWorldSpins`), since owners and shared holders keep the lock for microseconds and a
 wake-up through the kernel would leave the keyspace idle longer than that. A script takes the world lock
 before the engine mutex (`ScriptEngine::eval_script` loads and runs under one hold of `mu_`), so the scripts

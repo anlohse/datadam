@@ -41,6 +41,9 @@ docker build -t datadam .                      # slim image, with the binary onl
 docker run -d -p 6379:6379 -p 11211:11211 -v datadam-data:/var/lib/datadam datadam
 ```
 
+CI publishes the image of every commit on `main` that passes all the tests:
+`docker pull ghcr.io/anlohse/datadam:latest` (or `:sha-<commit>`).
+
 `tests/run_integration.sh` starts a fresh server and runs `tests/integration_test.py`. Then it kills the
 process with `kill -9`, starts the server again, checks that the data persisted, and tests a clean shutdown
 with SIGTERM.
@@ -83,6 +86,10 @@ as they are. What was not in the file and differs from the default goes at the e
 and renamed over it, so a crash halfway never leaves half a file. Without a configuration file, the command
 replies an error. In the Docker image the server owns `/etc/datadam`, so the rewrite works; to keep it when
 the container is recreated, mount the file in a volume.
+
+**Protected mode.** As in Redis, while the `default` user has no password, only clients on the loopback
+interface may connect (`protected-mode yes`, the default); others get `DENIED` and the ways out. The Docker
+image turns it off, as Redis's does, since a container's ports are reachable only where they are published.
 
 **Password.** With `requirepass` (in the file or through `CONFIG SET`), every new connection needs
 `AUTH <password>` (or `AUTH default <password>`, or `HELLO 3 AUTH default <password>`) before any other

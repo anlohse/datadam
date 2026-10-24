@@ -1,6 +1,8 @@
 # Builds and tests datadam on Linux (in Docker, as the Dockerfile does) and on
 # Windows (MSVC). The vcpkg dependencies are cached: the first run builds them
 # (RocksDB takes a while), later runs reuse them until vcpkg.json changes.
+# A push to main whose Linux tests all pass publishes the image to
+# ghcr.io/<owner>/datadam, tagged latest and sha-<commit>.
 name: CI
 
 on:
@@ -25,6 +27,9 @@ jobs:
     name: Linux (GCC 13, Docker)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write  # the image, to ghcr.io
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +68,36 @@ jobs:
 
       - name: Redis Sentinel failover
         run: bash tests/docker_sentinel_test.sh
+
+      # Only an image that passed everything above, and only from main.
+      - name: Image tags
+        id: meta
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Log in to ghcr.io
+        if: steps.meta.outcome == 'success'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the image
+        if: steps.meta.outcome == 'success'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
 
   windows:
     name: Windows (MSVC)

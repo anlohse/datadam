@@ -101,9 +101,13 @@ class KeyLocks {
     }
     if (!owner) writers_.lock();
     writer_.store(true, std::memory_order_seq_cst);
-    // Shared holders keep stripes for microseconds: spin before sleeping.
-    for (int i = 0; i < kWorldSpins && readers_.load() != 0; ++i) cpu_relax();
-    for (int64_t n = readers_.load(); n != 0; n = readers_.load()) readers_.wait(n);
+    // Shared holders keep stripes for microseconds: spin before sleeping. A
+    // reader that comes in after a slot was seen empty sees writer_ and steps
+    // back (lock_world_shared), so one pass over the slots is enough.
+    for (ReaderSlot& slot : readers_) {
+      for (int i = 0; i < kWorldSpins && slot.n.load() != 0; ++i) cpu_relax();
+      for (int64_t n = slot.n.load(); n != 0; n = slot.n.load()) slot.n.wait(n);
+    }
     h.world = true;
   }
   // The world owner, before it uses a key of stripe s: waits until a script
@@ -185,6 +189,11 @@ class KeyLocks {
   }
 
  private:
+  static constexpr size_t kReaderSlots = 64;
+  struct alignas(64) ReaderSlot {
+    std::atomic<int64_t> n{0};
+  };
+
   // What this thread holds of this KeyLocks.
   struct Holding {
     const KeyLocks* owner = nullptr;
@@ -212,18 +221,29 @@ class KeyLocks {
     return *free_slot;
   }
 
+  // Shared holders count themselves in one of kReaderSlots counters, each on
+  // its own cache line: a single counter, which every I/O thread changes for
+  // every batch, would bounce between the cores of a big machine. A thread
+  // keeps its slot; threads beyond kReaderSlots share them.
+  ReaderSlot& reader_slot() {
+    static std::atomic<size_t> next{0};
+    thread_local size_t mine = next.fetch_add(1, std::memory_order_relaxed) % kReaderSlots;
+    return readers_[mine];
+  }
   void lock_world_shared() {
+    ReaderSlot& slot = reader_slot();
     for (;;) {
       while (writer_.load(std::memory_order_seq_cst)) writer_.wait(true);
-      readers_.fetch_add(1, std::memory_order_seq_cst);
+      slot.n.fetch_add(1, std::memory_order_seq_cst);
       if (!writer_.load(std::memory_order_seq_cst)) return;
       // A writer came in between: step back so it can go first.
       unlock_world_shared();
     }
   }
   void unlock_world_shared() {
-    if (readers_.fetch_sub(1, std::memory_order_seq_cst) == 1 && writer_.load(std::memory_order_seq_cst)) {
-      readers_.notify_all();
+    ReaderSlot& slot = reader_slot();
+    if (slot.n.fetch_sub(1, std::memory_order_seq_cst) == 1 && writer_.load(std::memory_order_seq_cst)) {
+      slot.n.notify_all();
     }
   }
 
@@ -234,7 +254,7 @@ class KeyLocks {
     std::atomic<bool> committing{false};  // held by a script committing (downgrade_world)
   };
   std::array<Stripe, kStripes> stripes_;
-  alignas(64) std::atomic<int64_t> readers_{0};
+  std::array<ReaderSlot, kReaderSlots> readers_;
   alignas(64) std::atomic<bool> writer_{false};
   std::mutex writers_;
   alignas(64) std::atomic<int> committers_{0};  // downgraded owners still committing

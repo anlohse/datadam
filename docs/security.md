@@ -7,6 +7,7 @@ to the memcache port and to replication, and a hardening checklist.
 ## Contents
 
 - [Defaults](#defaults)
+- [Protected mode](#protected-mode)
 - [Passwords: requirepass and AUTH](#passwords-requirepass-and-auth)
 - [ACL users](#acl-users)
 - [Rules](#rules)
@@ -27,8 +28,30 @@ to the memcache port and to replication, and a hardening checklist.
 
 Out of the box datadam listens on `bind 0.0.0.0`, port 6379 (Redis) and port 11211 (memcache), with no
 password and no TLS. Every connection is logged in as the `default` user, which may run every command on every
-key. There is no "protected mode": a server reachable from other machines is open to them until you set a
-password or ACL users. See the [hardening checklist](#hardening-checklist).
+key, so [protected mode](#protected-mode) accepts connections from the loopback interface only, until you set
+a password. See the [hardening checklist](#hardening-checklist).
+
+## Protected mode
+
+As in Redis, `protected-mode yes` (the default) refuses clients from other machines while the `default` user
+needs no password: a server started with the sample configuration on a machine with a public address is not
+open to the internet by mistake.
+
+- **Who is refused.** A connection to the Redis port, the TLS port or the memcache port whose peer is not a
+  loopback address (`127.0.0.0/8`, `::1`, or an IPv4-mapped loopback). The Redis ports reply
+  `-DENIED datadam is running in protected mode ...` with the ways out, and memcache replies
+  `SERVER_ERROR datadam is running in protected mode ...`; then the connection closes.
+- **Who passes.** Loopback clients always. On the TLS port, a client that presented a certificate the server
+  verified (`tls-auth-clients yes` or `optional`). Everyone, as soon as the `default` user has a password
+  (`requirepass`, or `ACL SETUSER default >...`) or is turned off (`ACL SETUSER default off`): every client must
+  then log in anyway.
+- **When it is decided.** When the connection is accepted. Setting a password or `CONFIG SET protected-mode no`
+  applies to the next connections.
+- **Docker.** The image sets `protected-mode no`, as the official Redis image does: a container's ports are
+  reachable only where `docker run -p` publishes them, and the containers of a Docker network would otherwise
+  be refused. Set `requirepass` before publishing a port on an untrusted network.
+- **Replicas and Sentinel.** A replica, or a Sentinel, on another machine is an ordinary remote client: give
+  the primary a password (and the replica `masterauth`), or turn protected mode off on a private network.
 
 ## Passwords: requirepass and AUTH
 
@@ -449,6 +472,7 @@ subcommand. To let a user see its own connection but not close others, deny the 
 ## Hardening checklist
 
 1. **Bind to the right interface.** Set `bind` to a private address (or `127.0.0.1`), and firewall the ports.
+   Keep `protected-mode yes` unless the ports are reachable from trusted networks only.
 2. **Require a login.** Set `requirepass`, or better, create named users and run
    `ACL SETUSER default off` so that every client must log in as a user with only the permissions it needs.
 3. **Give applications narrow users.** Key patterns for their prefixes, `-@dangerous -@admin`, and

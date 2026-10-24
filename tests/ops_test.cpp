@@ -380,3 +380,26 @@ TEST_F(LiveOps, ShutdownStopsTheServer) {
   server_.reset();
   EXPECT_FALSE(c.read().has_value());  // no reply: the connection is closed
 }
+
+TEST_F(Ops, ProtectedModeRefusesRemoteClientsWithoutAPassword) {
+  ServerContext& ctx = *db_->ctx;
+  EXPECT_TRUE(protected_mode_refuses(ctx, "10.1.2.3"));
+  EXPECT_TRUE(protected_mode_refuses(ctx, "2001:db8::1"));
+  EXPECT_TRUE(protected_mode_refuses(ctx, "::ffff:10.1.2.3"));
+  EXPECT_FALSE(protected_mode_refuses(ctx, "127.0.0.1"));
+  EXPECT_FALSE(protected_mode_refuses(ctx, "127.8.9.10"));
+  EXPECT_FALSE(protected_mode_refuses(ctx, "::1"));
+  EXPECT_FALSE(protected_mode_refuses(ctx, "::ffff:127.0.0.1"));
+  EXPECT_FALSE(protected_mode_refuses(ctx, "10.1.2.3", true));  // a verified TLS client certificate
+  // A password for the default user lifts it, and so does turning it off.
+  EXPECT_EQ(text({"CONFIG", "SET", "requirepass", "pw"}), "OK");
+  EXPECT_FALSE(protected_mode_refuses(ctx, "10.1.2.3"));
+  EXPECT_EQ(text({"AUTH", "pw"}), "OK");
+  EXPECT_EQ(text({"CONFIG", "SET", "requirepass", ""}), "OK");
+  EXPECT_TRUE(protected_mode_refuses(ctx, "10.1.2.3"));
+  Value got = run({"CONFIG", "GET", "protected-mode"});
+  ASSERT_EQ(got.items.size(), 2u);
+  EXPECT_EQ(got.items[1].text, "yes");
+  EXPECT_EQ(text({"CONFIG", "SET", "protected-mode", "no"}), "OK");
+  EXPECT_FALSE(protected_mode_refuses(ctx, "10.1.2.3"));
+}

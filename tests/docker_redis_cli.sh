@@ -123,4 +123,20 @@ check "WAIT on a replica" "cannot be used with replica" "$(rcli WAIT 1 0)"
 check "FAILOVER to a stranger" "is not a replica" "$(pcli FAILOVER TO 10.9.9.9 1)"
 check "promoted" "OK" "$(rcli REPLICAOF NO ONE)"
 check "writes after promotion" "OK" "$(rcli SET repl:x y)"
+
+# ---- protected mode (the image turns it off; here it is on, as in datadam.conf)
+echo "### protected mode"
+PM_SRV=datadam-test-protected
+cleanup_pm() { docker rm -f "$PM_SRV" >/dev/null 2>&1 || true; }
+trap 'cleanup_pm; cleanup_repl; cleanup_tls; cleanup' EXIT
+docker run -d --name "$PM_SRV" --network "$NET" "$IMAGE" --protected-mode yes >/dev/null
+mcli() { docker run --rm --network "$NET" redis:7.4 redis-cli -h "$PM_SRV" "$@" 2>&1; }
+for _ in $(seq 50); do mcli PING | grep -q "DENIED" && break; sleep 0.2; done
+check "remote client refused" "DENIED datadam is running in protected mode" "$(mcli PING)"
+check "memcache refused too" "SERVER_ERROR datadam is running in protected mode" \
+  "$(docker run --rm --network "$NET" redis:7.4 bash -c "exec 3<>/dev/tcp/$PM_SRV/11211; printf 'version\r\n' >&3; head -c 60 <&3")"
+docker rm -f "$PM_SRV" >/dev/null
+docker run -d --name "$PM_SRV" --network "$NET" "$IMAGE" --protected-mode yes --requirepass s3cret >/dev/null
+for _ in $(seq 50); do mcli -a s3cret --no-auth-warning PING 2>/dev/null | grep -q PONG && break; sleep 0.2; done
+check "with a password, remote clients log in" "PONG" "$(mcli -a s3cret --no-auth-warning PING)"
 echo "all redis-cli tests passed"

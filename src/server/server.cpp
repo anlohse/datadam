@@ -53,6 +53,12 @@ std::string peer_address(const tcp::socket& socket) {
   return std::format("{}:{}", ep.address().to_string(), ep.port());
 }
 
+std::string peer_ip(const tcp::socket& socket) {
+  asio::error_code ec;
+  auto ep = socket.remote_endpoint(ec);
+  return ec ? std::string() : ep.address().to_string();
+}
+
 // Reads more bytes into `in`; returns false when the peer is gone.
 // Waits, without holding the thread, for the read pool to load `key`;
 // completes with whether it is now cached.
@@ -293,6 +299,12 @@ asio::awaitable<void> Server::redis_session(tcp::socket socket) {
   client.id = ctx_.stats.next_client_id.fetch_add(1, std::memory_order_relaxed) + 1;
   start_session(ctx_, client);
   client.addr = peer_address(socket);
+  if (protected_mode_refuses(ctx_, peer_ip(socket))) {
+    log_debug("redis client {} from {} refused: protected mode", client.id, client.addr);
+    std::string reply = std::format("-{}\r\n", kProtectedModeError);
+    co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
   log_debug("redis client {} connected from {}", client.id, client.addr);
   co_await serve_redis(socket, client);
   log_debug("redis client {} disconnected", client.id);
@@ -304,6 +316,7 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
   std::shared_ptr<TlsContext> tls = ctx_.tls();  // kept alive for the whole connection
   if (!tls) co_return;
   std::string addr = peer_address(socket);
+  std::string ip = peer_ip(socket);
   asio::ssl::stream<tcp::socket> stream(std::move(socket), tls->ssl());
   asio::steady_timer timer(co_await asio::this_coro::executor, kTlsHandshakeTimeout);
   // `||` waits for the first operation that *succeeds*, so the handshake reports
@@ -321,6 +334,12 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
     co_return;
   }
   ctx_.stats.tls_connections.fetch_add(1, std::memory_order_relaxed);
+  if (protected_mode_refuses(ctx_, ip, !verified_peer_cn(stream.native_handle()).empty())) {
+    log_debug("TLS client {} refused: protected mode", addr);
+    std::string reply = std::format("-{}\r\n", kProtectedModeError);
+    co_await asio::async_write(stream, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
 
   ClientState client;
   client.id = ctx_.stats.next_client_id.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -579,6 +598,12 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
 
 asio::awaitable<void> Server::memcache_session(tcp::socket socket) {
   ConnectionScope scope(ctx_.stats);
+  if (protected_mode_refuses(ctx_, peer_ip(socket))) {
+    log_debug("memcache client {} refused: protected mode", peer_address(socket));
+    std::string reply = std::format("SERVER_ERROR {}\r\n", kProtectedModeError.substr(7));  // without "DENIED "
+    co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
   try {
     MemcacheSession session(ctx_);
     std::string in, out;

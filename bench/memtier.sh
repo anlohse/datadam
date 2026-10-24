@@ -9,6 +9,7 @@
 #      SEEDS: "same" (memtier's default: every client draws the same key sequence,
 #      so the 100 clients ask for each key at about the same moment) or
 #      "distinct" (--distinct-client-seed: independent clients, the realistic case)
+#      DATADAM_IMAGE (default datadam:latest), to compare two builds
 #
 # The data set is loaded by bench/load_random.py with truly random values:
 # memtier's own --random-data reuses one buffer for every key (89x compressible
@@ -47,8 +48,8 @@ docker network create $NET >/dev/null 2>&1
 # memtables, connections and the process itself.
 server_cmd() {  # server -> image, data dir, port and arguments
   case "$1:$SCENARIO" in
-    datadam:fit) echo "datadam:latest /var/lib/datadam 6379 --io-threads 8 --memcache-port 0 --cache-max-memory 1gb --cache-min-memory 64mb --rocksdb-block-cache 256mb" ;;
-    datadam:big) echo "datadam:latest /var/lib/datadam 6379 --io-threads 8 --memcache-port 0 --cache-max-memory 384mb --cache-min-memory 64mb --rocksdb-block-cache 128mb --rocksdb-write-buffer 32mb" ;;
+    datadam:fit) echo "${DATADAM_IMAGE:-datadam:latest} /var/lib/datadam 6379 --io-threads 8 --memcache-port 0 --cache-max-memory 1gb --cache-min-memory 64mb --rocksdb-block-cache 256mb" ;;
+    datadam:big) echo "${DATADAM_IMAGE:-datadam:latest} /var/lib/datadam 6379 --io-threads 8 --memcache-port 0 --cache-max-memory 384mb --cache-min-memory 64mb --rocksdb-block-cache 128mb --rocksdb-write-buffer 32mb" ;;
     kvrocks:fit) echo "apache/kvrocks:latest /var/lib/kvrocks 6666 --rocksdb.block_cache_size 1280" ;;
     kvrocks:big) echo "apache/kvrocks:latest /var/lib/kvrocks 6666 --rocksdb.block_cache_size 512 --rocksdb.write_buffer_size 32" ;;
     # Redis keeps everything in memory: maxmemory just under the container

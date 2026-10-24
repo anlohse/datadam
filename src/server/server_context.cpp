@@ -7,6 +7,8 @@
 #include <set>
 #include <stdexcept>
 
+#include <asio/ip/address.hpp>
+
 #include "server/redis_commands.h"
 #include "util/log.h"
 #include "util/strings.h"
@@ -25,7 +27,7 @@ const std::set<std::string, std::less<>>& runtime_settings() {
       "tls-protocols",       "tls-ciphers",          "tls-ciphersuites", "masteruser",
       "masterauth",          "backup-dir",           "backup-keep",    "slowlog-log-slower-than",
       "slowlog-max-len",     "tls-replication",      "tls-client-cert-file", "tls-client-key-file",
-      "replica-priority",
+      "replica-priority",    "protected-mode",
   };
   return keys;
 }
@@ -46,6 +48,7 @@ ServerContext::ServerContext(Database& db_, Config& config_, ServerStats& stats_
       start_time_ms(start_time_ms_),
       write_batching(config_.write_batching),
       auth_required(false),
+      protected_mode(config_.protected_mode),
       backups(db_.storage(), start_time_ms_ / 1000),
       scripts(db_.storage()),
       mutable_config_(config_) {
@@ -85,6 +88,20 @@ void start_session(ServerContext& ctx, ClientState& client) {
   client.acl_version = ctx.acl.version();
   client.user = ctx.acl.initial_user();
   client.authenticated = client.user != nullptr;
+}
+
+bool protected_mode_refuses(const ServerContext& ctx, std::string_view peer, bool verified_certificate) {
+  if (!ctx.protected_mode.load(std::memory_order_relaxed) || ctx.auth_required.load(std::memory_order_relaxed)) {
+    return false;
+  }
+  if (verified_certificate) return false;
+  asio::error_code ec;
+  asio::ip::address addr = asio::ip::make_address(std::string(peer), ec);
+  if (ec) return true;
+  if (addr.is_v6() && addr.to_v6().is_v4_mapped()) {
+    addr = asio::ip::make_address_v4(asio::ip::v4_mapped, addr.to_v6());
+  }
+  return !addr.is_loopback();
 }
 
 Config ServerContext::settings() const {
@@ -143,6 +160,7 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   db.set_cache_on_write(next.cache_on_write);
   db.cache().set_admission(next.cache_admission);
   write_batching = next.write_batching;
+  protected_mode = next.protected_mode;
   if (next.requirepass != cur.requirepass) {
     std::string rule = next.requirepass.empty() ? "nopass" : ">" + next.requirepass;
     acl.set_user("default", std::vector<std::string>{"resetpass", rule});
@@ -184,6 +202,7 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   cur.slowlog_log_slower_than = next.slowlog_log_slower_than;
   cur.slowlog_max_len = next.slowlog_max_len;
   cur.tls_replication = next.tls_replication;
+  cur.protected_mode = next.protected_mode;
   cur.tls_client_cert_file = next.tls_client_cert_file;
   cur.tls_client_key_file = next.tls_client_key_file;
   cur.replica_priority = next.replica_priority;

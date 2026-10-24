@@ -47,6 +47,10 @@ RUN ctest --preset linux && sh tests/run_integration.sh build/linux/datadam
 FROM ubuntu:24.04 AS runtime
 COPY --from=build /src/build/linux/datadam /usr/local/bin/datadam
 COPY datadam.conf /etc/datadam/datadam.conf
+# Protected mode off, as in the official Redis image: a container's ports are
+# reachable only where they are published (-p). Set requirepass before
+# publishing them to an untrusted network.
+RUN sed -i 's/^protected-mode yes/protected-mode no/' /etc/datadam/datadam.conf
 # The server may rewrite its config file (CONFIG REWRITE), so it owns /etc/datadam.
 RUN useradd --system --home /var/lib/datadam datadam \
     && mkdir -p /var/lib/datadam && chown datadam /var/lib/datadam /etc/datadam /etc/datadam/datadam.conf

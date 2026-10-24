@@ -162,6 +162,12 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     tls_replication = *b;
     return {};
   }
+  if (key == "protected-mode") {
+    auto b = parse_bool(value);
+    if (!b) return bad_value(key, value);
+    protected_mode = *b;
+    return {};
+  }
   if (key == "replica-priority" || key == "slave-priority") {
     return set_number<unsigned>(key, value, &replica_priority, 0, 1000000);
   }
@@ -304,6 +310,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-ciphers", tls_ciphers},
       {"tls-ciphersuites", tls_ciphersuites},
       {"tls-replication", tls_replication ? "yes" : "no"},
+      {"protected-mode", protected_mode ? "yes" : "no"},
       {"tls-client-cert-file", tls_client_cert_file},
       {"tls-client-key-file", tls_client_key_file},
       {"replica-priority", std::to_string(replica_priority)},

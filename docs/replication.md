@@ -58,6 +58,7 @@ OK
 | `replicaof host port` | replica | Follow this primary from startup. `slaveof` is an alias. Set by `REPLICAOF` at run time and written by `CONFIG REWRITE`. |
 | `masteruser` | replica | ACL user to log in to the primary with. Changeable with `CONFIG SET`. |
 | `masterauth` | replica | Password for the primary. If set, the replica sends `AUTH masteruser masterauth` (or `AUTH masterauth` without `masteruser`) before anything else. Changeable with `CONFIG SET`; used on the next connection. |
+| `protected-mode` | primary | With `yes` (the default outside Docker) and no password for the `default` user, a replica on another machine is refused (`DENIED`). Give the primary a password and the replica `masterauth`, or use `no` on a private network. See [Security](security.md#protected-mode). |
 | `tls-replication` | replica | `yes`: connect to the primary with TLS (the `replicaof` port must then be its `tls-port`). Default `no`. See [Replication over TLS](#replication-over-tls). |
 | `tls-client-cert-file`, `tls-client-key-file` | replica | The certificate the replica presents to the primary over TLS; empty: `tls-cert-file` / `tls-key-file`. |
 | `replica-priority` | replica | What Redis Sentinel reads as `slave_priority`: among the replicas it may promote, the lowest wins; `0` never. Default `100`. |
