@@ -166,7 +166,8 @@ resource "aws_instance" "node" {
   placement_group        = var.cluster_placement ? aws_placement_group.cluster[0].id : null
 
   # `shutdown` (from max_hours in cloud-init, or by hand) terminates the instance.
-  instance_initiated_shutdown_behavior = "terminate"
+  # One-time Spot instances always do, and AWS refuses the attribute on them.
+  instance_initiated_shutdown_behavior = var.use_spot ? null : "terminate"
 
   dynamic "instance_market_options" {
     for_each = var.use_spot ? [1] : []

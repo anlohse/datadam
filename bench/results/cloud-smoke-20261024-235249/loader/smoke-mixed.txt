@@ -1,0 +1,28 @@
+Json file /out/smoke-mixed.json created...
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 5%,   1 secs]  2 threads 25 conns:      167126 ops,  166866 (avg:  166866) ops/sec, 32.38MB/sec (avg: 32.38MB/sec),  0.30 (avg:  0.30) msec latency[RUN #1 10%,   2 secs]  2 threads 25 conns:      329771 ops,  162626 (avg:  164747) ops/sec, 46.97MB/sec (avg: 39.67MB/sec),  0.31 (avg:  0.30) msec latency[RUN #1 15%,   3 secs]  2 threads 25 conns:      495783 ops,  165995 (avg:  165163) ops/sec, 59.00MB/sec (avg: 46.11MB/sec),  0.30 (avg:  0.30) msec latency[RUN #1 20%,   4 secs]  2 threads 25 conns:      663758 ops,  167954 (avg:  165861) ops/sec, 67.76MB/sec (avg: 51.52MB/sec),  0.30 (avg:  0.30) msec latency[RUN #1 25%,   5 secs]  2 threads 25 conns:      831768 ops,  167950 (avg:  166278) ops/sec, 73.95MB/sec (avg: 56.01MB/sec),  0.30 (avg:  0.30) msec latency[RUN #1 30%,   6 secs]  2 threads 25 conns:      991408 ops,  159621 (avg:  165169) ops/sec, 74.09MB/sec (avg: 59.02MB/sec),  0.31 (avg:  0.30) msec latency[RUN #1 35%,   7 secs]  2 threads 25 conns:     1160942 ops,  169509 (avg:  165789) ops/sec, 81.76MB/sec (avg: 62.27MB/sec),  0.29 (avg:  0.30) msec latency[RUN #1 40%,   8 secs]  2 threads 25 conns:     1337953 ops,  176991 (avg:  167189) ops/sec, 87.69MB/sec (avg: 65.44MB/sec),  0.28 (avg:  0.30) msec latency[RUN #1 45%,   9 secs]  2 threads 25 conns:     1514923 ops,  176949 (avg:  168273) ops/sec, 89.36MB/sec (avg: 68.10MB/sec),  0.28 (avg:  0.30) msec latency[RUN #1 50%,  10 secs]  2 threads 25 conns:     1691874 ops,  176922 (avg:  169138) ops/sec, 90.61MB/sec (avg: 70.35MB/sec),  0.28 (avg:  0.30) msec latency[RUN #1 55%,  11 secs]  2 threads 25 conns:     1869559 ops,  177664 (avg:  169913) ops/sec, 91.79MB/sec (avg: 72.30MB/sec),  0.28 (avg:  0.29) msec latency[RUN #1 60%,  12 secs]  2 threads 25 conns:     2038749 ops,  169172 (avg:  169851) ops/sec, 88.01MB/sec (avg: 73.61MB/sec),  0.29 (avg:  0.29) msec latency[RUN #1 65%,  13 secs]  2 threads 25 conns:     2218709 ops,  179928 (avg:  170626) ops/sec, 94.01MB/sec (avg: 75.18MB/sec),  0.28 (avg:  0.29) msec latency[RUN #1 70%,  14 secs]  2 threads 25 conns:     2402578 ops,  183826 (avg:  171569) ops/sec, 96.36MB/sec (avg: 76.69MB/sec),  0.27 (avg:  0.29) msec latency[RUN #1 75%,  15 secs]  2 threads 25 conns:     2586019 ops,  183332 (avg:  172354) ops/sec, 96.35MB/sec (avg: 78.00MB/sec),  0.27 (avg:  0.29) msec latency[RUN #1 80%,  16 secs]  2 threads 25 conns:     2767573 ops,  181451 (avg:  172922) ops/sec, 95.49MB/sec (avg: 79.10MB/sec),  0.27 (avg:  0.29) msec latency[RUN #1 85%,  17 secs]  2 threads 25 conns:     2950604 ops,  182954 (avg:  173513) ops/sec, 96.37MB/sec (avg: 80.11MB/sec),  0.27 (avg:  0.29) msec latency[RUN #1 90%,  18 secs]  2 threads 25 conns:     3116968 ops,  166268 (avg:  173110) ops/sec, 87.66MB/sec (avg: 80.53MB/sec),  0.30 (avg:  0.29) msec latency[RUN #1 95%,  19 secs]  2 threads 25 conns:     3304948 ops,  187957 (avg:  173891) ops/sec, 99.16MB/sec (avg: 81.51MB/sec),  0.27 (avg:  0.29) msec latency[RUN #1 100%,  20 secs]  0 threads 25 conns:     3489356 ops,  187957 (avg:  174452) ops/sec, 99.16MB/sec (avg: 82.32MB/sec),  0.27 (avg:  0.29) msec latency
+
+warning: GET miss rate 14.34% above target 1.00% (400419 misses / 2791464 ops)
+
+CPU Utilization Summary
+  Total CPU time:   28.812s  (user 8.915s, sys 19.897s)
+  Wall time:        20.004s
+  Cores used:       1.440   (avg 72.0% across 2 worker threads)
+  Peak utilization: 156.3%
+Saving JSON output file: /out/smoke-mixed.json
+Json file closed.
+2         Threads
+25        Connections per thread
+20        Seconds
+
+
+ALL STATS
+============================================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency  p99.99 Latency       KB/sec 
+--------------------------------------------------------------------------------------------------------------------------------------------
+Sets        34891.59          ---          ---         0.29323         0.29500         0.49500         0.85500         2.46300     19009.40 
+Gets       139561.18    119541.95     20019.23         0.28483         0.28700         0.49500         0.83100         1.99100     65285.15 
+Waits           0.00          ---          ---             ---             ---             ---             ---             ---          --- 
+Totals     174452.77    119541.95     20019.23         0.28651         0.28700         0.49500         0.83900         2.12700     84294.55 

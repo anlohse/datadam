@@ -14,5 +14,7 @@ docker run --rm --network host -v "$RESULTS":/out redislabs/memtier_benchmark:la
   -s "$server" -p 6379 --authenticate="$PASSWORD" --protocol=redis --hide-histogram \
   --print-percentiles=50,99,99.9,99.99 --json-out-file="/out/$name.json" "$@" > "$RESULTS/$name.txt" 2>&1
 rcli "$server" INFO everything > "$RESULTS/$name-info-after.txt" 2>&1 || true
+# memtier writes its command line, password included, into the JSON.
+sed -i -E 's/"authenticate": *"[^"]*"/"authenticate": "<redacted>"/' "$RESULTS/$name.json"
 grep -E '^(Type|Sets|Gets|Totals) ' "$RESULTS/$name.txt"
 upload

@@ -121,12 +121,16 @@ def leftovers(region):
     found = []
     tagged = aws("resourcegroupstaggingapi", "get-resources", "--tag-filters", "Key=project,Values=datadam-bench",
                  region=region)
-    # Terminated instances stay listed for a while: instances are checked by state below.
-    found += [m["ResourceARN"] for m in tagged.get("ResourceTagMappingList", []) if ":instance/" not in m["ResourceARN"]]
+    # Terminated instances and deleted volumes stay listed there for a while:
+    # those two are asked of EC2 directly below.
+    found += [m["ResourceARN"] for m in tagged.get("ResourceTagMappingList", [])
+              if ":instance/" not in m["ResourceARN"] and ":volume/" not in m["ResourceARN"]]
     inst = aws("ec2", "describe-instances", "--filters", "Name=tag:project,Values=datadam-bench",
                "Name=instance-state-name,Values=pending,running,stopping,stopped", region=region)
     found += [f"instance {i['InstanceId']} ({i['State']['Name']})" for r in inst.get("Reservations", [])
               for i in r["Instances"]]
+    vols = aws("ec2", "describe-volumes", "--filters", "Name=tag:project,Values=datadam-bench", region=region)
+    found += [f"volume {v['VolumeId']} ({v['State']})" for v in vols.get("Volumes", [])]
     vols = aws("ec2", "describe-volumes", "--filters", "Name=status,Values=available", region=region)
     found += [f"unattached volume {v['VolumeId']} ({v['Size']} GB)" for v in vols.get("Volumes", [])]
     addrs = aws("ec2", "describe-addresses", region=region)

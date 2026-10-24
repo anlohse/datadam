@@ -50,36 +50,48 @@ and runs the image `image` (default `ghcr.io/anlohse/datadam:latest`; pin `:sha-
    only a few vCPUs. Ask for 64 for both in us-east-1. The answer can take from minutes to a couple of days, so
    ask early. The smoke test needs only 4.
 
-**On your machine** (Windows; the same tools exist for Linux and macOS):
+**On your machine:** only Docker and bash (Git Bash on Windows). The tools run in a container,
+`cloud/tools.sh`, which builds the image `datadam-cloud-tools` (AWS CLI v2, Terraform 1.9.8, the Session
+Manager plugin, Python) on first use and runs a command in it, with the repository at `/work` and `~/.aws`
+mounted:
 
 ```bash
-winget install Hashicorp.Terraform
-winget install Amazon.AWSCLI
-winget install Amazon.SessionManagerPlugin
+bash cloud/tools.sh aws sts get-caller-identity     # should print your account
 ```
 
-Then log in once and make that profile the default for these commands:
+Credentials go in `~/.aws`, never in the repository: either `aws configure sso` (IAM Identity Center,
+short-lived credentials; log in with `bash cloud/tools.sh aws sso login --use-device-code` and open the link
+it prints) or an access key of an IAM user made for the tests in `~/.aws/credentials` (a file saved as
+`credentials.txt` by a Windows editor is found too). Not the root user's: a root access key can do anything to
+the account, and no policy limits it. Set `AWS_PROFILE` if the profile is not `default`.
+
+Behind an antivirus or proxy that intercepts HTTPS (Avast does), point `EXTRA_CA` to its root certificate:
+the image build and every command then trust it.
 
 ```bash
-aws configure sso                     # start URL and region from IAM Identity Center; name the profile datadam
-export AWS_PROFILE=datadam            # in each new terminal (PowerShell: $env:AWS_PROFILE = "datadam")
-aws sts get-caller-identity           # should print your account
+export EXTRA_CA=/path/to/root-ca.crt
 ```
 
-The scripts also need Python 3 (standard library only).
+The tools can also be installed on the host instead (`winget install Hashicorp.Terraform Amazon.AWSCLI
+Amazon.SessionManagerPlugin` on Windows); then run the commands below without `bash cloud/tools.sh`.
 
 ## Running a test
 
 From the repository root, for the smoke test (phase 1):
 
 ```bash
-aws sso login
-terraform -chdir=cloud/terraform init
-terraform -chdir=cloud/terraform apply -var-file=../scenarios/smoke.tfvars
-python cloud/cloud.py smoke           # waits for the nodes, starts datadam, runs cloud/node/smoke.sh, collects
-terraform -chdir=cloud/terraform destroy -var-file=../scenarios/smoke.tfvars
-python cloud/cloud.py leftovers       # must print "nothing left"
+T="bash cloud/tools.sh"
+$T terraform -chdir=cloud/terraform init
+$T terraform -chdir=cloud/terraform apply -var-file=../scenarios/smoke.tfvars -var image=ghcr.io/anlohse/datadam:sha-<commit>
+$T python3 cloud/cloud.py smoke        # waits for the nodes, starts datadam, runs cloud/node/smoke.sh, collects
+$T terraform -chdir=cloud/terraform destroy -var-file=../scenarios/smoke.tfvars
+$T python3 cloud/cloud.py leftovers    # must print "nothing left"
 ```
+
+The first smoke run (2026-10-24, two Spot c7i.large, image `sha-0018eaa`) took about 15 minutes from apply to
+"nothing left" and passed: datadam on 2 vCPUs did 512k `SET` and 1.16M `GET` per second with redis-benchmark
+(50 clients, pipeline 16), and 174k ops/s with memtier (mixed 1:4, p99 0.5 ms). Its results are in
+`bench/results/cloud-smoke-20261024-235249/`.
 
 Other commands, while the environment exists:
 
@@ -104,12 +116,15 @@ machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-thr
   (`delete_on_termination`), and the NVMe stores (they belong to the instance). Nothing is created that
   outlives it: no Elastic IPs, snapshots, NAT gateways, container registries or log groups.
 - **Instances end themselves.** Each one runs `shutdown -h +<max_hours × 60>` at boot, and shutting down
-  terminates it (`instance_initiated_shutdown_behavior = "terminate"`). If you forget `destroy`, or your
+  terminates it (one-time Spot instances always do; on-demand ones get
+  `instance_initiated_shutdown_behavior = "terminate"`, which AWS refuses on Spot instances). If you forget `destroy`, or your
   machine goes away mid-test, they stop costing after `max_hours`; the rest (VPC, bucket, role) costs nothing
   idle, and `destroy` removes it later.
 - **`cloud.py leftovers` checks.** Everything is tagged `project = datadam-bench`. The check lists what still has
-  that tag, plus running or stopped instances with it, unattached volumes, Elastic IPs, open Spot requests,
-  `datadam-bench-*` buckets, IAM roles and instance profiles. An empty list means nothing is billed.
+  that tag, plus running or stopped instances with it, volumes, unattached volumes, Elastic IPs, open Spot
+  requests, `datadam-bench-*` buckets, IAM roles and instance profiles. An empty list means nothing is billed.
+  (AWS's tag index keeps listing deleted instances and volumes for a while, so those are asked of EC2
+  directly.)
 - **The budget alert** is the last net.
 
 ## Phases
@@ -151,3 +166,4 @@ instance.
 | `scenarios/*.tfvars` | The machines of each phase |
 | `node/` | What runs on the nodes: `setup.sh` (first boot), `server.sh`, `replica.sh`, `sentinel.sh`, `load.sh`, `sysstats.sh`, and the scenarios (`smoke.sh`) |
 | `cloud.py` | What runs on your machine: wait, run, the scenarios, collect, leftovers |
+| `tools.sh`, `tools/` | The tools image (AWS CLI, Terraform, Python) and the script that runs commands in it |
