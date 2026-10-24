@@ -8,17 +8,20 @@
 #include <rocksdb/options.h>
 #include <rocksdb/table.h>
 #include <rocksdb/transaction_log.h>
+#include <rocksdb/types.h>
 #include <rocksdb/utilities/checkpoint.h>
 #include <rocksdb/write_batch.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <map>
 
 #include "storage/data_keys.h"
 #include "storage/record.h"
 #include "util/clock.h"
 #include "util/log.h"
+#include "util/strings.h"
 
 namespace datadam {
 
@@ -638,6 +641,44 @@ std::string RocksStorage::property(const std::string& name) {
   std::string v;
   if (!db_->GetProperty(meta_, name, &v)) return {};
   return v;
+}
+
+RocksStorage::WriteStalls RocksStorage::write_stalls() {
+  using rocksdb::WriteStallCause;
+  using rocksdb::WriteStallCondition;
+  using Keys = rocksdb::WriteStallStatsMapKeys;
+  WriteStalls w;
+  auto count = [](const std::map<std::string, std::string>& m, const std::string& key) -> uint64_t {
+    auto it = m.find(key);
+    return it == m.end() ? 0 : parse_uint64(it->second).value_or(0);
+  };
+  for (auto* h : handles_) {
+    std::map<std::string, std::string> m;
+    if (db_->GetMapProperty(h, rocksdb::DB::Properties::kCFWriteStallStats, &m)) {
+      w.delays += count(m, Keys::TotalDelays());
+      w.stops += count(m, Keys::TotalStops());
+      auto cause = [&](WriteStallCause c, WriteStallCondition cond) {
+        return count(m, Keys::CauseConditionCount(c, cond));
+      };
+      w.memtable_delays += cause(WriteStallCause::kMemtableLimit, WriteStallCondition::kDelayed);
+      w.memtable_stops += cause(WriteStallCause::kMemtableLimit, WriteStallCondition::kStopped);
+      w.l0_delays += cause(WriteStallCause::kL0FileCountLimit, WriteStallCondition::kDelayed);
+      w.l0_stops += cause(WriteStallCause::kL0FileCountLimit, WriteStallCondition::kStopped);
+      w.pending_compaction_delays += cause(WriteStallCause::kPendingCompactionBytes, WriteStallCondition::kDelayed);
+      w.pending_compaction_stops += cause(WriteStallCause::kPendingCompactionBytes, WriteStallCondition::kStopped);
+    }
+    uint64_t n = 0;
+    if (db_->GetIntProperty(h, rocksdb::DB::Properties::kNumImmutableMemTable, &n)) w.immutable_memtables += n;
+    if (db_->GetIntProperty(h, rocksdb::DB::Properties::kEstimatePendingCompactionBytes, &n)) {
+      w.pending_compaction_bytes += n;
+    }
+  }
+  uint64_t n = 0;
+  if (db_->GetIntProperty(rocksdb::DB::Properties::kNumRunningFlushes, &n)) w.running_flushes = n;
+  if (db_->GetIntProperty(rocksdb::DB::Properties::kNumRunningCompactions, &n)) w.running_compactions = n;
+  if (db_->GetIntProperty(rocksdb::DB::Properties::kActualDelayedWriteRate, &n)) w.delayed_write_rate = n;
+  if (db_->GetIntProperty(rocksdb::DB::Properties::kIsWriteStopped, &n)) w.write_stopped = n != 0;
+  return w;
 }
 
 void RocksStorage::sync_wal() {

@@ -302,6 +302,15 @@ Counters are totals since startup. `CONFIG RESETSTAT` clears only the latency hi
 | `rdb_last_save_time` | Unix time of the last successful `SAVE`, `BGSAVE` or `BACKUP` (the start time before any) |
 | `rdb_last_bgsave_status` | `ok`, or `err` if the last backup failed (the server log says why) |
 | `last_backup_path`, `last_backup_duration_ms` | Where the last successful backup went, and how long the last one took |
+| `rocksdb_write_stall_delays`, `rocksdb_write_stall_stops` | Times RocksDB slowed down or stopped writes because flushes or compactions fell behind, since the server started (all column families) |
+| `rocksdb_stall_memtable_delays`, `rocksdb_stall_memtable_stops` | ... because too many memtables waited for a flush (the disk does not absorb the write rate) |
+| `rocksdb_stall_l0_delays`, `rocksdb_stall_l0_stops` | ... because there were too many level-0 files (compaction behind) |
+| `rocksdb_stall_pending_compaction_delays`, `rocksdb_stall_pending_compaction_stops` | ... because too many bytes waited for compaction |
+| `rocksdb_write_stopped` | 1 while writes are stopped |
+| `rocksdb_delayed_write_rate` | Bytes per second RocksDB lets through while it delays writes |
+| `rocksdb_immutable_memtables` | Memtables waiting for a flush now |
+| `rocksdb_pending_compaction_bytes` | RocksDB's estimate of the bytes compaction is behind |
+| `rocksdb_running_flushes`, `rocksdb_running_compactions` | Background jobs running now |
 
 For the total disk usage, measure `dir` itself.
 
@@ -596,7 +605,10 @@ Clear the histograms with `CONFIG RESETSTAT`, reproduce the load, and read `INFO
 
 - High `storage_get_usec` with a low `cache_hit_ratio`: the reads go to disk. Grow the cache or the block
   cache, or `read-threads` if `read_pool_queued` stays high.
-- High `storage_write_usec`: RocksDB write stalls or slow syncs; check the RocksDB `LOG` and `fsync`.
+- High `storage_write_usec`: RocksDB write stalls or slow syncs. `rocksdb_write_stall_delays` and the causes
+  after it (`INFO persistence`) say which: memtable stalls mean the disk does not keep up with the write rate
+  (a bigger `rocksdb-write-buffer` absorbs bursts), L0 or pending-compaction stalls mean compaction is behind
+  (more `rocksdb-background-jobs`). The RocksDB `LOG` in `dir` has the details.
 - High `key_lock_wait_usec` or `write_batch_conflicts`: many clients writing the same keys.
 
 `bench/repro_tail.sh` shows how the benchmarks collected these numbers.

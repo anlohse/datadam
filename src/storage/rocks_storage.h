@@ -184,6 +184,21 @@ class RocksStorage {
 
   uint64_t estimate_keys();
   std::string property(const std::string& name);
+  // Write stalls (RocksDB slowing or stopping writes because flushes or
+  // compactions fall behind), counted since the database was opened, summed
+  // over the column families; and what is behind right now.
+  struct WriteStalls {
+    uint64_t delays = 0, stops = 0;  // every cause
+    uint64_t memtable_delays = 0, memtable_stops = 0;  // too many memtables waiting for flush
+    uint64_t l0_delays = 0, l0_stops = 0;  // too many L0 files
+    uint64_t pending_compaction_delays = 0, pending_compaction_stops = 0;
+    uint64_t immutable_memtables = 0;      // waiting for flush now
+    uint64_t pending_compaction_bytes = 0;
+    uint64_t running_flushes = 0, running_compactions = 0;
+    uint64_t delayed_write_rate = 0;  // bytes/s while delaying; 0 when not
+    bool write_stopped = false;
+  };
+  WriteStalls write_stalls();
   // Makes buffered WAL data durable according to the fsync policy.
   void sync_wal();
   void flush();

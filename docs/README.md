@@ -61,4 +61,5 @@ Start here if you want to change datadam itself.
 - **Security.** Redis-style ACL users, with per-command and per-key-pattern permissions, and TLS with client
   certificates.
 
-The [project README](../README.md) has the same material in a single page, plus the roadmap.
+The [project README](../README.md) has the same material in a single page, plus the roadmap. The test
+environment on AWS, with its Terraform and scripts, is described in [cloud/README.md](../cloud/README.md).

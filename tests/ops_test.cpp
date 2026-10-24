@@ -403,3 +403,12 @@ TEST_F(Ops, ProtectedModeRefusesRemoteClientsWithoutAPassword) {
   EXPECT_EQ(text({"CONFIG", "SET", "protected-mode", "no"}), "OK");
   EXPECT_FALSE(protected_mode_refuses(ctx, "10.1.2.3"));
 }
+
+TEST_F(Ops, InfoShowsRocksDbWriteStalls) {
+  for (const char* field : {"rocksdb_write_stall_delays", "rocksdb_write_stall_stops", "rocksdb_stall_memtable_delays",
+                            "rocksdb_stall_l0_stops", "rocksdb_write_stopped", "rocksdb_delayed_write_rate",
+                            "rocksdb_immutable_memtables", "rocksdb_pending_compaction_bytes",
+                            "rocksdb_running_flushes", "rocksdb_running_compactions"}) {
+    EXPECT_EQ(persistence(field), "0") << field;  // an idle, fresh database
+  }
+}

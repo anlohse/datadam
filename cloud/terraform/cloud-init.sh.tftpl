@@ -1,0 +1,51 @@
+#!/bin/bash
+# Set up by Terraform (cloud/terraform/cloud-init.sh.tftpl): node ${node}, role ${role}.
+# The per-role work lives in the repository's cloud/node/ scripts.
+set -euxo pipefail
+exec > >(tee -a /var/log/datadam-setup.log) 2>&1
+
+# Safety net: the instance terminates itself after max_hours, whether or not
+# anyone runs `terraform destroy` (instance_initiated_shutdown_behavior).
+shutdown -h +${max_hours * 60}
+
+cat > /etc/datadam-bench.env <<'EOF'
+NODE=${node}
+ROLE=${role}
+IMAGE=${image}
+PASSWORD=${password}
+BUCKET=${bucket}
+REGION=${region}
+RUN_ID=${run_id}
+FOLLOWS=${follows}
+NODES="${nodes}"
+EOF
+chmod 600 /etc/datadam-bench.env
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -y -q docker.io sysstat nvme-cli mdadm git python3
+snap install aws-cli --classic
+systemctl enable --now docker
+
+# Data on the instance's NVMe store when it has one (RAID 0 over several); it
+# is erased when the instance stops, which is fine for a test.
+mkdir -p /data
+devs=$(lsblk -dpno NAME,MODEL | awk '/Instance Storage/ {print $1}')
+if [ -n "$devs" ]; then
+  count=$(echo "$devs" | wc -l)
+  if [ "$count" -gt 1 ]; then
+    mdadm --create /dev/md0 --level=0 --raid-devices="$count" $devs --force --run
+    dev=/dev/md0
+  else
+    dev=$devs
+  fi
+  mkfs.ext4 -F -q -E nodiscard "$dev"
+  mount -o noatime "$dev" /data
+fi
+chmod 1777 /data
+
+git clone -q https://github.com/anlohse/datadam.git /opt/datadam
+git -C /opt/datadam checkout -q ${repo_ref}
+ln -sf /opt/datadam/cloud/node/*.sh /usr/local/bin/
+bash /opt/datadam/cloud/node/setup.sh
+touch /run/datadam-ready
