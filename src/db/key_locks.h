@@ -161,6 +161,8 @@ class KeyLocks {
     ~Multi() {
       for (auto it = stripes_.rbegin(); it != stripes_.rend(); ++it) locks_.unlock(*it);
     }
+    // Movable for `cond ? lock_all() : lock_keys(...)` (MSVC 2022 wants it there); a moved-from one unlocks nothing.
+    Multi(Multi&& o) noexcept : locks_(o.locks_), stripes_(std::move(o.stripes_)) { o.stripes_.clear(); }
     Multi(const Multi&) = delete;
     Multi& operator=(const Multi&) = delete;
 
