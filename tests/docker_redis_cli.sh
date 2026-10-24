@@ -70,6 +70,7 @@ trap 'cleanup_tls; cleanup' EXIT
   done
   chmod 644 ./*.key
 )
+chmod 755 "$TLS_DIR"  # mktemp makes it 0700; the containers run as other users
 TLS_MOUNT=$(cd "$TLS_DIR" && pwd -W 2>/dev/null || pwd)
 docker run -d --name "$TLS_SRV" --network "$NET" -v "$VOL-tls":/var/lib/datadam -v "$TLS_MOUNT":/tls:ro "$IMAGE" \
   --tls-port 6380 --tls-cert-file /tls/server.crt --tls-key-file /tls/server.key --tls-ca-cert-file /tls/ca.crt \

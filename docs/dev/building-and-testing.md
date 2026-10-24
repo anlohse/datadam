@@ -15,6 +15,7 @@ compiler warning settings, the benchmark scripts, and some debugging tips. User-
 - [Unit tests](#unit-tests)
 - [Running a single test](#running-a-single-test)
 - [End-to-end tests](#end-to-end-tests)
+- [Continuous integration](#continuous-integration)
 - [Benchmarks](#benchmarks)
 - [Debugging tips](#debugging-tips)
 
@@ -232,6 +233,24 @@ image on a private Docker network and tests it with `redis-cli` from the `redis:
 
 It needs Docker, `openssl` on the host and the image built first (`docker build -t datadam .`). Under Git Bash
 on Windows it sets `MSYS_NO_PATHCONV=1` so volume paths are not rewritten.
+
+## Continuous integration
+
+[.github/workflows/ci.yml](../../.github/workflows/ci.yml) runs on every push to `main`, on pull requests and
+by hand (`workflow_dispatch`); a newer push to the same branch cancels the run in progress.
+
+| Job | Runner | What it does |
+|---|---|---|
+| Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh` and `tests/docker_sentinel_test.sh` against it. |
+| Windows | `windows-2022` | Fetches vcpkg at the manifest's baseline, configures with the `windows` preset in a VS developer environment (`ilammy/msvc-dev-cmd`), builds `windows-release` and runs `ctest`. |
+
+The first run builds every dependency (RocksDB is the slow one) and takes much longer than the next ones. The
+cache is keyed by the vcpkg commit and the hash of `vcpkg.json`, and is saved right after the dependencies are
+built, so a failing build or test does not throw it away. On Linux, the `deps` layer is built and exported in
+a step of its own for the same reason. Changing `vcpkg.json` (or the baseline, which must move in
+`vcpkg.json`, the Dockerfile's `VCPKG_COMMIT` and the workflow's `VCPKG_COMMIT` together) rebuilds them.
+
+The TLS tests, which skip themselves on machines whose antivirus intercepts TLS, run on both runners.
 
 ## Benchmarks
 

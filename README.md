@@ -1,5 +1,7 @@
 # datadam
 
+[![CI](https://github.com/anlohse/datadam/actions/workflows/ci.yml/badge.svg)](https://github.com/anlohse/datadam/actions/workflows/ci.yml)
+
 A persistent key-value store compatible with the **Redis (RESP2/RESP3)** and **memcache (text)** protocols.
 RocksDB is the source of truth on disk, and an **object cache on a memory pool of its own** sits in front of
 it. The long-term goal is to offer Redis-style data structures with **persistent secondary indexes** (see the

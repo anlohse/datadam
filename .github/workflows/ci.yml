@@ -1,0 +1,116 @@
+# Builds and tests datadam on Linux (in Docker, as the Dockerfile does) and on
+# Windows (MSVC). The vcpkg dependencies are cached: the first run builds them
+# (RocksDB takes a while), later runs reuse them until vcpkg.json changes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The manifest's builtin-baseline (vcpkg.json) and the Dockerfile's VCPKG_COMMIT.
+  VCPKG_COMMIT: 77df67cfff9c12ccfdb52284e07c87c75092f723
+
+jobs:
+  linux:
+    name: Linux (GCC 13, Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The dependency layer alone first, so its cache is saved even when a
+      # later step fails.
+      - name: Dependencies (vcpkg)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: deps
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+          cache-to: type=gha,scope=linux-deps,mode=max
+
+      - name: Build, unit tests and integration test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: test
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+
+      - name: Runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+          tags: datadam:latest
+          load: true
+
+      - name: redis-cli suite (commands, persistence, TLS, replication)
+        run: bash tests/docker_redis_cli.sh datadam:latest
+
+      - name: Redis Sentinel failover
+        run: bash tests/docker_sentinel_test.sh
+
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      VCPKG_ROOT: C:\dd\vcpkg
+      VCPKG_DISABLE_METRICS: 1
+      VCPKG_BINARY_SOURCES: clear;files,C:\dd\vcpkg-cache,readwrite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: vcpkg at the manifest's baseline
+        shell: pwsh
+        run: |
+          git init -q $env:VCPKG_ROOT
+          git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $env:VCPKG_ROOT fetch -q --depth 1 origin $env:VCPKG_COMMIT
+          git -C $env:VCPKG_ROOT checkout -q FETCH_HEAD
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force "C:\dd\vcpkg-cache" | Out-Null
+
+      - name: Restore built dependencies
+        id: deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\dd\vcpkg-cache
+          key: vcpkg-windows-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-${{ env.VCPKG_COMMIT }}-
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure (installs the dependencies)
+        run: cmake --preset windows
+
+      # Saved right after the install, so a failing build or test does not
+      # throw the built dependencies away.
+      - name: Save built dependencies
+        if: always() && steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\dd\vcpkg-cache
+          key: vcpkg-windows-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+
+      - name: Build
+        run: cmake --build --preset windows-release
+
+      - name: Unit tests
+        run: ctest --preset windows-release
