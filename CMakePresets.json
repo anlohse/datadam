@@ -31,15 +31,26 @@
         "CMAKE_BUILD_TYPE": "Release"
       },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-asan",
+      "displayName": "Linux with AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": "linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "DATADAM_SANITIZE": "address,undefined"
+      }
     }
   ],
   "buildPresets": [
     { "name": "windows-release", "configurePreset": "windows", "configuration": "Release" },
     { "name": "windows-debug", "configurePreset": "windows", "configuration": "Debug" },
-    { "name": "linux", "configurePreset": "linux" }
+    { "name": "linux", "configurePreset": "linux" },
+    { "name": "linux-asan", "configurePreset": "linux-asan" }
   ],
   "testPresets": [
     { "name": "windows-release", "configurePreset": "windows", "configuration": "Release", "output": { "outputOnFailure": true } },
-    { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } }
+    { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
+    { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } }
   ]
 }

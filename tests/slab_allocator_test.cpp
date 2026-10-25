@@ -3,6 +3,7 @@
 #include <set>
 #include <vector>
 
+#include "mem/asan.h"
 #include "mem/page_arena.h"
 #include "mem/size_classes.h"
 #include "mem/slab_allocator.h"
@@ -80,3 +81,21 @@ TEST(PageArena, KeepsMinimumCommitted) {
   EXPECT_EQ(arena.pages_in_use(), 0u);
   EXPECT_EQ(arena.pages_committed(), 2u);  // min-memory stays committed
 }
+
+#ifdef DATADAM_ASAN
+// In ASan builds the pool poisons what it does not hand out: touching a freed
+// chunk (or the unused rest of a page) is reported, as a use-after-free would be.
+TEST(SlabAllocatorDeathTest, FreedChunksArePoisoned) {
+  SizeClasses classes(64, 1024);
+  PageArena arena(kPage, 0, kPage, classes.min_chunk());
+  SlabAllocator slab(arena, classes, 0);
+  char* a = static_cast<char*>(slab.allocate(0));
+  char* b = static_cast<char*>(slab.allocate(0));
+  ASSERT_NE(a, nullptr);
+  a[0] = 'x';
+  slab.deallocate(a);
+  EXPECT_DEATH(static_cast<void>(*static_cast<volatile char*>(a)), "use-after-poison");
+  EXPECT_DEATH(static_cast<void>(*static_cast<volatile char*>(b + classes.size(0))), "use-after-poison");
+  slab.deallocate(b);
+}
+#endif

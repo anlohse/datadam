@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <random>
 #include <string>
 #include <thread>
 
@@ -157,4 +158,49 @@ TEST(ObjectCache, FullCacheAdmitsKeysOnTheirSecondAccess) {
   // Admission can be switched off at runtime.
   c.set_admission(false);
   EXPECT_TRUE(c.insert("first-time", rec(v)));
+}
+
+// Leak check of the pool: after any mix of inserts, replacements, erases,
+// pending items, evictions under pressure and page steals between size
+// classes, every chunk and page comes back when the cache is emptied. Every
+// value read back must be one that was written to that key (ASan builds also
+// poison freed chunks, so a read of one would be reported).
+TEST(ObjectCache, PoolGetsEveryChunkBack) {
+  CacheOptions o = small_cache(2 << 20);
+  o.shards = 4;
+  ObjectCache c(o);
+  std::mt19937_64 rng(7);
+  std::string value;
+  for (int round = 0; round < 4; ++round) {
+    for (int i = 0; i < 30000; ++i) {
+      std::string key = "k" + std::to_string(rng() % 4000);
+      uint64_t op = rng() % 10;
+      if (op < 6) {
+        // Sizes spread over many classes, so pressure moves pages between them.
+        value.assign(rng() % (round % 2 == 0 ? 3500 : 300), static_cast<char>('a' + key.size() % 26));
+        bool pending = rng() % 8 == 0;
+        c.insert(key, rec(value), false, pending);
+        if (pending) c.confirm(key);
+      } else if (op < 8) {
+        c.erase(key);
+      } else {
+        c.lookup(key, [&](const RecordView& v) {
+          EXPECT_TRUE(v.value.empty() || v.value[0] == static_cast<char>('a' + key.size() % 26)) << key;
+        });
+      }
+    }
+    CacheStats s = c.stats();
+    EXPECT_LE(s.pages_in_use * c.page_size(), o.max_memory) << "round " << round;
+    EXPECT_EQ(s.items == 0, s.chunk_bytes == 0) << "round " << round;
+  }
+  c.clear();
+  CacheStats s = c.stats();
+  EXPECT_EQ(s.items, 0u);
+  EXPECT_EQ(s.chunk_bytes, 0u);
+  EXPECT_EQ(s.payload_bytes, 0u);
+  EXPECT_EQ(s.pages_in_use, 0u);
+  for (const auto& cls : c.class_stats()) {
+    EXPECT_EQ(cls.items, 0u) << "chunk size " << cls.chunk_size;
+    EXPECT_EQ(cls.pages, 0u) << "chunk size " << cls.chunk_size;
+  }
 }

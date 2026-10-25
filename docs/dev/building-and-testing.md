@@ -16,6 +16,7 @@ compiler warning settings, the benchmark scripts, and some debugging tips. User-
 - [Running a single test](#running-a-single-test)
 - [End-to-end tests](#end-to-end-tests)
 - [Continuous integration](#continuous-integration)
+- [Sanitizers](#sanitizers)
 - [Benchmarks](#benchmarks)
 - [Debugging tips](#debugging-tips)
 
@@ -256,6 +257,33 @@ a step of its own for the same reason. Changing `vcpkg.json` (or the baseline, w
 `vcpkg.json`, the Dockerfile's `VCPKG_COMMIT` and the workflow's `VCPKG_COMMIT` together) rebuilds them.
 
 The TLS tests, which skip themselves on machines whose antivirus intercepts TLS, run on both runners.
+A third job, **Linux (ASan + UBSan)**, builds the Dockerfile's `asan` stage (see [Sanitizers](#sanitizers)).
+
+## Sanitizers
+
+`DATADAM_SANITIZE` (GCC and Clang) builds everything with `-fsanitize=<list>`, and with
+`-fno-sanitize-recover=all`, so the first report fails the run. The `linux-asan` preset sets
+`address,undefined` in `build/linux-asan` (RelWithDebInfo), and the Dockerfile's `asan` stage runs the unit
+tests and `run_integration.sh` with it:
+
+```bash
+docker build --target asan .
+```
+
+- **AddressSanitizer** reports invalid reads and writes and, through LeakSanitizer at exit, heap memory never
+  freed. The dependencies are not instrumented; their own bugs show up only where our code touches the memory.
+- **The memory pool hides from it** (a page is one big live allocation to ASan), so `SlabAllocator` marks what
+  it does not hand out with `asan_poison` ([mem/asan.h](../../src/mem/asan.h)): a page is poisoned when a
+  size class takes it, each chunk is unpoisoned when it is handed out and poisoned again when it is freed, and
+  a page given back to the arena is poisoned whole. A read of a freed chunk is then reported as
+  `use-after-poison`; `SlabAllocatorDeathTest.FreedChunksArePoisoned`, built only with ASan, checks that.
+- **Leaks inside the pool** (a chunk that never goes back to its free list) are not heap leaks, so LeakSanitizer
+  cannot see them: `ObjectCache.PoolGetsEveryChunkBack` mixes inserts, replacements, erases, pending items,
+  evictions and page steals and checks that every chunk and page comes back once the cache is emptied.
+- **UndefinedBehaviorSanitizer** reports signed overflow, misaligned or null accesses, bad shifts, invalid
+  enum and bool values and the like.
+- ThreadSanitizer (`DATADAM_SANITIZE=thread`) builds, but needs instrumented dependencies (RocksDB) to give
+  results worth reading; it is not in CI yet.
 
 ## Benchmarks
 

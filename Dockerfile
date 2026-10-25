@@ -44,6 +44,13 @@ RUN cmake --preset linux && cmake --build --preset linux --parallel "$VCPKG_MAX_
 FROM build AS test
 RUN ctest --preset linux && sh tests/run_integration.sh build/linux/datadam
 
+# The unit and integration tests again, built with AddressSanitizer and
+# UndefinedBehaviorSanitizer (leaks included): docker build --target asan .
+FROM deps AS asan
+COPY . .
+ENV ASAN_OPTIONS=abort_on_error=1:detect_stack_use_after_return=1:strict_string_checks=1     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+RUN cmake --preset linux-asan && cmake --build --preset linux-asan --parallel "$VCPKG_MAX_CONCURRENCY"     && ctest --preset linux-asan && sh tests/run_integration.sh build/linux-asan/datadam
+
 FROM ubuntu:24.04 AS runtime
 COPY --from=build /src/build/linux/datadam /usr/local/bin/datadam
 COPY datadam.conf /etc/datadam/datadam.conf

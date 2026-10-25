@@ -3,6 +3,8 @@
 #include <bit>
 #include <cstring>
 
+#include "mem/asan.h"
+
 namespace datadam {
 
 SlabAllocator::SlabAllocator(PageArena& arena, const SizeClasses& classes, uint16_t owner_id)
@@ -52,6 +54,7 @@ void* SlabAllocator::allocate(size_t cls) {
     m.chunk_size = static_cast<uint32_t>(classes_.size(cls));
     m.capacity = static_cast<uint32_t>(arena_.page_size() / m.chunk_size);
     std::memset(arena_.live_bits(page), 0, arena_.words_per_page() * sizeof(uint64_t));
+    asan_poison(arena_.page_ptr(page), arena_.page_size());  // chunks are unpoisoned as they are handed out
     link_partial(page);
     ++pages_owned_;
     ++class_pages_[cls];
@@ -62,9 +65,11 @@ void* SlabAllocator::allocate(size_t cls) {
   uint32_t idx;
   if (m.free_head != PageMeta::kNone) {
     idx = m.free_head;
+    asan_unpoison(base + static_cast<size_t>(idx) * m.chunk_size, m.chunk_size);
     std::memcpy(&m.free_head, base + static_cast<size_t>(idx) * m.chunk_size, sizeof(uint32_t));
   } else {
     idx = m.bump++;
+    asan_unpoison(base + static_cast<size_t>(idx) * m.chunk_size, m.chunk_size);
   }
   arena_.live_bits(page)[idx / 64] |= 1ULL << (idx % 64);
   ++m.live;
@@ -93,10 +98,12 @@ void SlabAllocator::deallocate(void* chunk) {
     m.owner = PageMeta::kNoOwner;
     --pages_owned_;
     --class_pages_[m.cls];
+    asan_poison(base, arena_.page_size());
     arena_.release(page);
     return;
   }
   std::memcpy(chunk, &m.free_head, sizeof(uint32_t));
+  asan_poison(chunk, m.chunk_size);  // the free-list link inside it is read only after unpoisoning
   m.free_head = idx;
   if (was_full) link_partial(page);
 }

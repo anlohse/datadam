@@ -99,6 +99,26 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           push: true
 
+  sanitizers:
+    name: Linux (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The Dockerfile's asan stage: unit and integration tests built with
+      # AddressSanitizer (leaks included; the memory pool poisons what it does
+      # not hand out) and UndefinedBehaviorSanitizer. The first report fails it.
+      - name: Unit and integration tests under the sanitizers
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: asan
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+
   windows:
     name: Windows (MSVC)
     runs-on: windows-2022

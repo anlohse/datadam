@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DATADAM_BUILD_TESTS "Build unit tests" ON)
+set(DATADAM_SANITIZE "" CACHE STRING "Sanitizers to build with (GCC/Clang): address,undefined or thread")
 
 find_package(asio CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
@@ -97,6 +98,12 @@ if(MSVC)
     /wd4324)  # structure padded due to alignas: intended for cache-line separation
 else()
   target_compile_options(datadam_core PUBLIC -Wall -Wextra -Wpedantic)
+  if(DATADAM_SANITIZE)
+    # Every UB report is fatal, so a test run fails on the first one.
+    target_compile_options(datadam_core PUBLIC -fsanitize=${DATADAM_SANITIZE} -fno-sanitize-recover=all
+      -fno-omit-frame-pointer -g)
+    target_link_options(datadam_core PUBLIC -fsanitize=${DATADAM_SANITIZE})
+  endif()
 endif()
 
 add_executable(datadam src/main.cpp)
