@@ -40,13 +40,28 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "DATADAM_SANITIZE": "address,undefined"
       }
+    },
+    {
+      "name": "linux-fuzz",
+      "displayName": "Linux libFuzzer targets (Clang, ASan + UBSan)",
+      "inherits": "linux",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "DATADAM_SANITIZE": "address,undefined,fuzzer-no-link",
+        "DATADAM_FUZZ": "ON",
+        "DATADAM_BUILD_TESTS": "OFF",
+        "VCPKG_MANIFEST_INSTALL": "OFF"
+      }
     }
   ],
   "buildPresets": [
     { "name": "windows-release", "configurePreset": "windows", "configuration": "Release" },
     { "name": "windows-debug", "configurePreset": "windows", "configuration": "Debug" },
     { "name": "linux", "configurePreset": "linux" },
-    { "name": "linux-asan", "configurePreset": "linux-asan" }
+    { "name": "linux-asan", "configurePreset": "linux-asan" },
+    { "name": "linux-fuzz", "configurePreset": "linux-fuzz" }
   ],
   "testPresets": [
     { "name": "windows-release", "configurePreset": "windows", "configuration": "Release", "output": { "outputOnFailure": true } },

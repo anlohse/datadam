@@ -51,6 +51,14 @@ COPY . .
 ENV ASAN_OPTIONS=abort_on_error=1:detect_stack_use_after_return=1:strict_string_checks=1     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
 RUN cmake --preset linux-asan && cmake --build --preset linux-asan --parallel "$VCPKG_MAX_CONCURRENCY"     && ctest --preset linux-asan && sh tests/run_integration.sh build/linux-asan/datadam
 
+# The libFuzzer targets (fuzz/), built with Clang, ASan and UBSan:
+#   docker build --target fuzz -t datadam:fuzz .
+#   docker run --rm datadam:fuzz build/linux-fuzz/fuzz_resp -max_total_time=60 fuzz/corpus/resp
+FROM deps AS fuzz
+RUN apt-get update && apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev llvm-18 && rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN cmake --preset linux-fuzz && cmake --build --preset linux-fuzz --parallel "$VCPKG_MAX_CONCURRENCY"
+
 FROM ubuntu:24.04 AS runtime
 COPY --from=build /src/build/linux/datadam /usr/local/bin/datadam
 COPY datadam.conf /etc/datadam/datadam.conf

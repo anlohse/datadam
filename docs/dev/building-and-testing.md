@@ -17,6 +17,7 @@ compiler warning settings, the benchmark scripts, and some debugging tips. User-
 - [End-to-end tests](#end-to-end-tests)
 - [Continuous integration](#continuous-integration)
 - [Sanitizers](#sanitizers)
+- [Fuzzing](#fuzzing)
 - [Benchmarks](#benchmarks)
 - [Debugging tips](#debugging-tips)
 
@@ -284,6 +285,34 @@ docker build --target asan .
   enum and bool values and the like.
 - ThreadSanitizer (`DATADAM_SANITIZE=thread`) builds, but needs instrumented dependencies (RocksDB) to give
   results worth reading; it is not in CI yet.
+
+## Fuzzing
+
+[fuzz/](../../fuzz/) has libFuzzer targets for what reads untrusted bytes. The Dockerfile's `fuzz` stage builds
+them with Clang 18, ASan and UBSan (`linux-fuzz` preset, `DATADAM_FUZZ=ON`), and `fuzz/run.sh [seconds]` runs
+each one in that image (CI: one minute each). Crash inputs land in `fuzz-artifacts/`; replay one with
+`docker run --rm -v "$PWD/fuzz-artifacts":/out datadam:fuzz build/linux-fuzz/fuzz_<target> /out/<file>`.
+
+| Target | What it feeds | Input |
+|---|---|---|
+| `fuzz_resp` | `RespParser::parse` | Raw request bytes; checks progress and that arguments point into the buffer |
+| `fuzz_json` | `parse_json`, `JsonPath::parse` and `select` | `<path>
+<document>`; what is selected must dump to JSON that parses |
+| `fuzz_records` | `decode_record`, `decode_collection_meta`, `decode_data_key`, `ElementSet::load` | Stored encodings, as they come from disk or from a primary; a loaded set must find every element it lists and survive `encode` + `load` |
+| `fuzz_commands` | `execute_redis_command` on a real database (RocksDB in a temporary directory, the cache, indexes, Lua) | A RESP stream, with the command names of `fuzz/commands.dict`; commands that act outside the process (replication, backups, shutdown) or lock the next inputs out (`ACL`, `CONFIG`) are skipped |
+
+`fuzz/corpus/<target>/` holds the seeds. `fuzz_commands` runs with `-detect_leaks=0`: its database lives
+across inputs, and LeakSanitizer's thread tracer crashes in containers with many threads (`Tracer caught
+signal 11`); leaks are the ASan tests' job.
+
+What the first runs found, all in `ElementSet::load` (the encoding of small collections, read from disk and
+from replication), now covered by `ElementSetTest.RefusesACountTheBufferCannotHold`:
+
+- a count from the input sized `offsets_.reserve` before it was checked against the buffer: 4 bytes asked for
+  gigabytes;
+- a length of `0xffffffff` added in 32 bits (`4 + len` wrapped to 3), so a malformed set loaded and was read
+  far past its buffer;
+- subs out of order or repeated were accepted, and the binary searches then missed elements.
 
 ## Benchmarks
 

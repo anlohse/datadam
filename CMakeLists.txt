@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DATADAM_BUILD_TESTS "Build unit tests" ON)
 set(DATADAM_SANITIZE "" CACHE STRING "Sanitizers to build with (GCC/Clang): address,undefined or thread")
+option(DATADAM_FUZZ "Build the libFuzzer targets in fuzz/ (Clang, with fuzzer-no-link in DATADAM_SANITIZE)" OFF)
 
 find_package(asio CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
@@ -107,6 +108,15 @@ else()
 endif()
 
 add_executable(datadam src/main.cpp)
+
+if(DATADAM_FUZZ)
+  foreach(target fuzz_resp fuzz_json fuzz_records fuzz_commands)
+    add_executable(${target} fuzz/${target}.cpp)
+    target_link_libraries(${target} PRIVATE datadam_core)
+    target_compile_options(${target} PRIVATE -fsanitize=fuzzer)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+  endforeach()
+endif()
 target_link_libraries(datadam PRIVATE datadam_core)
 
 if(DATADAM_BUILD_TESTS)

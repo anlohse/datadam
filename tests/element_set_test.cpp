@@ -73,3 +73,26 @@ TEST(ElementSetTest, AppendBuildsAValidEncoding) {
   EXPECT_FALSE(copy.load("\x05"));
   EXPECT_TRUE(copy.load(""));
 }
+
+// Found by fuzz_records: a count far beyond what the buffer can hold must be
+// refused, not used to size anything (the encoding comes from disk and from a
+// primary).
+TEST(ElementSetTest, RefusesACountTheBufferCannotHold) {
+  ElementSet s;
+  EXPECT_FALSE(s.load(std::string("\x7f\x0a\x5d\x5d", 4)));
+  EXPECT_EQ(s.size(), 0u);
+  EXPECT_FALSE(s.load(std::string("\xff\xff\xff\xff", 4)));
+  EXPECT_FALSE(s.load(std::string("\x02\x00\x00\x00\x00\x00\x00\x00", 8)));  // 2 elements, room for 0
+  // Also found by fuzz_records: a value length of 0xffffffff, which a 32-bit
+  // sum turned into 3, so the set loaded and was read far past its buffer.
+  EXPECT_FALSE(s.load(std::string("\x01\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff", 12)));
+  // And subs out of order (or repeated), which binary searches would miss.
+  ElementSet good;
+  good.append("a", "1");
+  good.append("b", "2");
+  std::string enc = good.encode();
+  EXPECT_TRUE(s.load(enc));
+  std::string swapped = enc;
+  std::swap(swapped[swapped.find('a')], swapped[swapped.find('b')]);  // now "b" before "a"
+  EXPECT_FALSE(s.load(swapped));
+}

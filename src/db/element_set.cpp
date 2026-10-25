@@ -29,8 +29,15 @@ bool ElementSet::load(std::string buffer, size_t start) {
   base_ = std::move(buffer);
   start_ = start;
   uint32_t n = read_u32(base_.data() + start_);
-  offsets_.reserve(n);
   size_t pos = start_ + 4;
+  // Each element takes at least 8 bytes (two lengths): a larger count is
+  // malformed, and must not size the reservation (it comes from disk, or
+  // from a primary).
+  if (n > (base_.size() - pos) / 8) {
+    clear();
+    return false;
+  }
+  offsets_.reserve(n);
   for (uint32_t i = 0; i < n; ++i) {
     offsets_.push_back(static_cast<uint32_t>(pos));
     for (int part = 0; part < 2; ++part) {
@@ -38,9 +45,14 @@ bool ElementSet::load(std::string buffer, size_t start) {
         clear();
         return false;
       }
-      pos += 4 + read_u32(base_.data() + pos);
+      pos += 4 + static_cast<size_t>(read_u32(base_.data() + pos));  // in 32 bits, 4 + 0xffffffff wraps to 3
     }
     if (pos > base_.size()) {
+      clear();
+      return false;
+    }
+    // Lookups are binary searches: the subs must be strictly ascending.
+    if (i > 0 && entry(i - 1).sub >= entry(i).sub) {
       clear();
       return false;
     }

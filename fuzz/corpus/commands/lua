@@ -1,0 +1,25 @@
+*4
+$4
+EVAL
+$34
+return redis.call('INCR', KEYS[1])
+$1
+1
+$1
+c
+*3
+$4
+EVAL
+$33
+return cjson.encode({a = {1, 2}})
+$1
+0
+*4
+$4
+EVAL
+$41
+return redis.pcall('LPUSH', KEYS[1], 'x')
+$1
+1
+$1
+c

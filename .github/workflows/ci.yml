@@ -119,6 +119,35 @@ jobs:
           build-args: BUILD_JOBS=4
           cache-from: type=gha,scope=linux-deps
 
+  fuzz:
+    name: Fuzzing (libFuzzer, 1 min per target)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the fuzz targets (Clang, ASan + UBSan)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: fuzz
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+          tags: datadam:fuzz
+          load: true
+
+      - name: Fuzz every target
+        run: bash fuzz/run.sh 60
+
+      - name: Keep what the fuzzers found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz-artifacts/
+
   windows:
     name: Windows (MSVC)
     runs-on: windows-2022
