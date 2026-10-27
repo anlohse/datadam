@@ -4,9 +4,10 @@
 #   server.sh start datadam|redis|kvrocks [server arguments...]
 #   server.sh stop
 #   server.sh info [section]
+#   server.sh du                 size of the data directory, in bytes
 . /opt/datadam/cloud/node/common.sh
 
-cmd=${1:?usage: server.sh start <datadam|redis|kvrocks> [args...] | stop | info [section]}
+cmd=${1:?usage: server.sh start <datadam|redis|kvrocks> [args...] | stop | info [section] | du}
 shift
 
 mem_mb=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024))
@@ -17,7 +18,11 @@ case $cmd in
     kind=${1:?which server}
     shift
     docker rm -f bench-server >/dev/null 2>&1 || true
-    rm -rf "/data/$kind"
+    # Every store's data goes (phase 3 leaves hundreds of GB), and the page cache
+    # with it: each one starts cold.
+    rm -rf /data/datadam /data/redis /data/kvrocks
+    sync
+    echo 3 > /proc/sys/vm/drop_caches
     mkdir -p "/data/$kind"
     chmod 777 "/data/$kind"
     run=(docker run -d --name bench-server --network host --ulimit nofile=1048576:1048576)
@@ -52,6 +57,9 @@ case $cmd in
     ;;
   info)
     rcli 127.0.0.1 INFO "${1:-everything}"
+    ;;
+  du)
+    du -sb /data/datadam /data/redis /data/kvrocks 2>/dev/null || true
     ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
 esac

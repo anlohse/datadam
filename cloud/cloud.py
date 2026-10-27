@@ -6,6 +6,8 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py wait                     every node up and set up
   python cloud/cloud.py run <node> <command...>  run a shell command on a node, print its output
   python cloud/cloud.py smoke                    phase 1: start datadam, run cloud/node/smoke.sh on the loader
+  python cloud/cloud.py memory [--pilot]         phase 2: in memory, datadam x Redis x Kvrocks
+  python cloud/cloud.py large [--pilot]          phase 3: larger than memory, datadam x Kvrocks
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -164,6 +166,66 @@ def scenario_memory(outs, reps, seconds, keys, servers, rates):
     collect(outs)
 
 
+# ---- phase 3: larger than memory
+
+# Reads first: the writes change the data set, which is loaded once per server
+# (hundreds of GB take most of an hour). Longer runs: a cold cache warms up
+# during the first seconds of each (memtier's JSON has the per-second series).
+LARGE_WORKLOADS = [  # name, memtier arguments, seconds x
+    ("read-uniform", "--ratio=0:1 --key-pattern=R:R", 2),
+    ("read-gaussian", "--ratio=0:1 --key-pattern=G:G", 2),
+    ("mixed-gaussian", "--ratio=1:4 --key-pattern=G:G", 2),
+    ("mixed-gaussian-p16", "--ratio=1:4 --key-pattern=G:G --pipeline=16", 1),
+    ("write-uniform", "--ratio=1:0 --key-pattern=R:R", 2),
+]
+LARGE_MEMTIER = "--threads=8 --clients=25 --data-size=1000 --random-data --distinct-client-seed"
+# Offered loads of the latency curve, below what the disk-bound runs reach.
+LARGE_RATES = [25_000, 50_000, 100_000]
+
+
+def scenario_large(outs, keys, value_bytes, seconds, settle_s, reps, servers, rates):
+    """Each server in turn: load `keys` incompressible values (timed, with the
+    machine's statistics), leave it `settle_s` seconds to compact, then the
+    workloads `reps` times and the latency curve, with the size on disk
+    before and after."""
+    wait_ready(outs)
+
+    def step(node, command, timeout_s=3600):
+        code, _, _ = run_on(outs, node, command, timeout_s=timeout_s)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+
+    def measure(tag, name, args, secs):
+        step("server", f"{NODE}/sysstats.sh start {tag}-{name}")
+        step("loader", f"{NODE}/load.sh {tag}-{name} {LARGE_MEMTIER} --key-maximum={keys} --test-time={secs} {args}")
+        step("server", f"{NODE}/sysstats.sh stop")
+
+    def size(tag):
+        step("server", f". /etc/datadam-bench.env; {NODE}/server.sh du | tee /data/results/$RUN_ID/{tag}-du.txt; "
+                       f"{NODE}/server.sh info persistence > /data/results/$RUN_ID/{tag}-persistence.txt 2>&1 || true")
+
+    for server in servers:
+        step("server", f"{NODE}/server.sh start {server}")
+        step("server", f"{NODE}/sysstats.sh start {server}-load")
+        step("loader", f"{NODE}/dataset.sh {server} {keys} {value_bytes} 12", timeout_s=6 * 3600)
+        size(f"{server}-loaded")
+        if settle_s:
+            step("server", f"sleep {settle_s}", timeout_s=settle_s + 600)
+        step("server", f"{NODE}/sysstats.sh stop")
+        size(f"{server}-settled")
+        for rep in range(1, reps + 1):
+            for name, args, x in LARGE_WORKLOADS:
+                measure(f"{server}-r{rep}", name, args, seconds * x)
+        for rate in rates:
+            per_connection = max(1, rate // 200)
+            measure(server, f"rate{rate // 1000}k", f"--ratio=1:4 --key-pattern=G:G --rate-limiting={per_connection}",
+                    seconds)
+        size(f"{server}-end")
+        step("server", f"{NODE}/sysstats.sh stop")  # uploads the size files too
+    step("server", f"{NODE}/server.sh stop")
+    collect(outs)
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -239,6 +301,15 @@ def main():
         else:
             scenario_memory(outs, reps=3, seconds=60, keys=5_000_000, servers=["datadam", "redis", "kvrocks"],
                             rates=RATES)
+    elif cmd == "large":
+        # python cloud/cloud.py large [--pilot]: phase 3, datadam and Kvrocks
+        # (Redis keeps everything in memory) with ~200 GB on a 64 GB machine.
+        if "--pilot" in sys.argv:
+            scenario_large(outs, keys=2_000_000, value_bytes=1000, seconds=10, settle_s=10, reps=1,
+                           servers=["datadam", "kvrocks"], rates=LARGE_RATES[:1])
+        else:
+            scenario_large(outs, keys=200_000_000, value_bytes=1000, seconds=60, settle_s=300, reps=2,
+                           servers=["datadam", "kvrocks"], rates=LARGE_RATES)
     elif cmd == "collect":
         collect(outs)
     else:
