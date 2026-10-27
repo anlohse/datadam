@@ -29,7 +29,8 @@ case $cmd in
     case $kind in
       datadam)
         # Caches about 60% of the memory: 45% objects, 15% RocksDB blocks.
-        "${run[@]}" -v /data/datadam:/var/lib/datadam "$IMAGE" \
+        # DATADAM_IMAGE: another image than the run's, to compare two builds on one machine.
+        "${run[@]}" -v /data/datadam:/var/lib/datadam "${DATADAM_IMAGE:-$IMAGE}" \
           --requirepass "$PASSWORD" --memcache-port 0 --io-threads "$cpus" \
           --cache-max-memory "$((mem_mb * 45 / 100))mb" --rocksdb-block-cache "$((mem_mb * 15 / 100))mb" \
           --rocksdb-write-buffer 128mb --rocksdb-background-jobs "$((cpus > 4 ? cpus / 2 : 2))" "$@" >/dev/null
