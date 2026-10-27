@@ -10,6 +10,7 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py large [--pilot]          phase 3: larger than memory, datadam x Kvrocks
   python cloud/cloud.py scale [--pilot]          phase 4: 4/8/16 vCPUs, datadam x Redis x Kvrocks, io-threads sweep
   python cloud/cloud.py scale-image <image>      phase 4 again, datadam only, from another image
+  python cloud/cloud.py ha [--pilot]             phase 5: kill, restart, network cut, planned failover
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -19,6 +20,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime
 
@@ -290,6 +292,77 @@ def scenario_scale(outs, reps, seconds, keys, stores, sweep, image=None):
     collect(outs)
 
 
+# ---- phase 5: high availability
+
+def scenario_ha(outs, keys, value_bytes, write_s, fault_at_s, cut_s, workers):
+    """A primary (the server node), the replicas and three sentinels; the
+    loader writes with WAIT 1 (bench/ha_check.py) while, in turn:
+      kill      the primary is killed (kill -9); it comes back empty, as a
+                replica: a full sync of the whole data set;
+      restart   a replica restarts, keeping its data: it catches up;
+      cut       the primary loses the replicas and the sentinels for cut_s
+                (the loader still reaches it), then the network heals;
+      failover  a planned SENTINEL FAILOVER.
+    After each, every acknowledged write is looked for on every data node."""
+    wait_ready(outs)
+    nodes = outs["nodes"]
+    by_ip = {v["ip"]: n for n, v in nodes.items()}
+    replicas = sorted(n for n, v in nodes.items() if v["role"] == "replica")
+    others = lambda p: [v["ip"] for n, v in nodes.items() if n != p and v["role"] in ("server", "replica", "sentinel")]
+
+    def step(node, command):
+        code, out, _ = run_on(outs, node, command)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+        return out
+
+    def primary():
+        ip = step("loader", f"{NODE}/ha_load.sh primary").strip()
+        if ip not in by_ip:
+            sys.exit(f"the sentinels name no known primary: {ip!r}")
+        return by_ip[ip]
+
+    def under_writes(name, seconds, fault):
+        """The writes run for `seconds`; fault() starts fault_at_s after them."""
+        writer = threading.Thread(target=step, args=("loader", f"{NODE}/ha_load.sh write {name} {seconds} {workers}"))
+        writer.start()
+        time.sleep(fault_at_s)
+        fault()
+        writer.join()
+        step("loader", f"{NODE}/ha_load.sh verify {name}")
+
+    step("server", f"{NODE}/ha.sh primary")
+    for r in replicas:
+        step(r, f"{NODE}/ha.sh rejoin {nodes['server']['ip']}")
+    step("loader", f"TARGET=server {NODE}/dataset.sh ha-preload {keys} {value_bytes}")
+    for r in replicas:
+        step(r, f"{NODE}/ha.sh synced {nodes['server']['ip']}")
+
+    p = primary()
+    under_writes("kill", write_s, lambda: step(p, f"{NODE}/ha.sh kill"))
+    step(p, f"{NODE}/ha.sh rejoin {nodes[primary()]['ip']}")
+
+    p = primary()
+    r = next(n for n in replicas + ["server"] if n != p)
+    under_writes("restart", write_s, lambda: step(r, f"{NODE}/ha.sh restart"))
+    step(r, f"{NODE}/ha.sh synced {nodes[p]['ip']}")
+
+    p = primary()
+
+    def cut():
+        step(p, f"{NODE}/ha.sh cut {' '.join(others(p))}")
+        time.sleep(cut_s)
+        step(p, f"{NODE}/ha.sh heal")
+
+    under_writes("cut", write_s + cut_s, cut)
+    step(p, f"{NODE}/ha.sh synced {nodes[primary()]['ip']}")
+
+    p = primary()
+    under_writes("failover", write_s, lambda: step("loader", f"{NODE}/ha_load.sh failover"))
+    step(p, f"{NODE}/ha.sh synced {nodes[primary()]['ip']}")
+    collect(outs)
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -390,6 +463,13 @@ def main():
             run_on(outs, node, "git -C /opt/datadam pull -q")
         scenario_scale(outs, reps=2, seconds=45, keys=5_000_000, stores=["datadam-new"], sweep=[4, 8, 16],
                        image=image)
+    elif cmd == "ha":
+        # python cloud/cloud.py ha [--pilot]: phase 5, writes with WAIT 1
+        # through four faults; 10 GB for the full sync of the rejoining node.
+        if "--pilot" in sys.argv:
+            scenario_ha(outs, keys=200_000, value_bytes=1000, write_s=30, fault_at_s=10, cut_s=15, workers=8)
+        else:
+            scenario_ha(outs, keys=10_000_000, value_bytes=1000, write_s=90, fault_at_s=25, cut_s=30, workers=16)
     elif cmd == "collect":
         collect(outs)
     else:
