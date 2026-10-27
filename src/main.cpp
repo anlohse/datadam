@@ -127,9 +127,9 @@ int main(int argc, char** argv) {
     Server server(ctx);
     server.start();
     auto port_or_off = [](uint16_t p) { return p ? std::to_string(p) : std::string("off"); };
-    log_info("datadam {} | redis {}:{} | tls {} | memcache {} | data dir {} | fsync {}", DATADAM_VERSION, cfg.bind,
-             port_or_off(cfg.port), port_or_off(cfg.tls_port), port_or_off(cfg.memcache_port), cfg.dir,
-             fsync_policy_name(cfg.fsync));
+    log_info("datadam {} | redis {}:{} | tls {} | memcache {} | io threads {} | data dir {} | fsync {}", DATADAM_VERSION,
+             cfg.bind, port_or_off(cfg.port), port_or_off(cfg.tls_port), port_or_off(cfg.memcache_port),
+             cfg.io_thread_count(), cfg.dir, fsync_policy_name(cfg.fsync));
     if (cfg.tls_port != 0) {
       log_info("tls: certificate {} | client certificates {} | login by certificate CN {}", cfg.tls_cert_file,
                cfg.tls_auth_clients, cfg.tls_auth_clients_user);

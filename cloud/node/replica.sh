@@ -9,4 +9,4 @@ chmod 777 /data/datadam
 docker run -d --name bench-server --network host --restart unless-stopped --ulimit nofile=1048576:1048576 \
   -v /data/datadam:/var/lib/datadam "$IMAGE" \
   --requirepass "$PASSWORD" --masterauth "$PASSWORD" --replicaof "$FOLLOWS 6379" --memcache-port 0 \
-  --io-threads "$(nproc)" --wal-retention 1h "$@" >/dev/null
+  --wal-retention 1h "$@" >/dev/null

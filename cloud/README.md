@@ -104,7 +104,7 @@ Other commands, while the environment exists:
 | `terraform -chdir=cloud/terraform output -raw password` | The `requirepass` of the nodes |
 
 The node scripts are in `cloud/node/`: `server.sh start datadam|redis|kvrocks [args]` sizes each store for the
-machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-threads` = CPUs);
+machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-threads` auto);
 `load.sh <name> [memtier args]` runs memtier against the server and saves its JSON and text plus the server's
 `INFO` before and after; `sysstats.sh start <name>` / `stop` records `mpstat` and `iostat` every second.
 

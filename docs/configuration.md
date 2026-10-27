@@ -89,7 +89,7 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 | `protected-mode` | boolean | `yes` (`no` in the Docker image) | yes | While the `default` user needs no password, refuse clients that are not on the loopback interface (TLS clients with a verified certificate pass). See [Security](security.md#protected-mode). |
 | `port` | 0–65535 | `6379` | no | Plain-text Redis protocol port. `0` disables it, which requires `tls-port`. |
 | `memcache-port` | 0–65535 | `11211` | no | memcache text protocol port. `0` disables it. |
-| `io-threads` | 1–1024 | `4` | no | Threads that run the network event loop and execute commands. |
+| `io-threads` | 1–1024 or `auto` | `auto` | no | Threads that run the network event loop and execute commands. `auto`: one per CPU up to 8, then half the CPUs (16 CPUs: 8), which leaves CPU to RocksDB's flushes and compactions and to the read pool; on 16 vCPUs, 8 I/O threads served 20% more of a mixed read/write load than 16 (a read-only load was measured only with 16). `INFO server` shows the number in use. |
 
 `INFO server` shows `tcp_port`, `memcache_port` and `io_threads`.
 
@@ -357,8 +357,8 @@ bind 0.0.0.0
 port 6379
 # memcache is not used by this deployment.
 memcache-port 0
-# One I/O thread per core or two is a reasonable start.
-io-threads 8
+# auto (the default): one per CPU up to 8, then half the CPUs.
+io-threads auto
 
 # ---- persistence (RocksDB) ----
 dir /var/lib/datadam

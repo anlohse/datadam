@@ -84,7 +84,7 @@ auto async_load(ReadPool& pool, std::string_view key, Token&& token) {
 }  // namespace
 
 Server::Server(ServerContext& ctx)
-    : ctx_(ctx), contexts_(make_contexts(ctx.config.io_threads)), io_(*contexts_[0]), signals_(io_, SIGINT, SIGTERM) {
+    : ctx_(ctx), contexts_(make_contexts(ctx.config.io_thread_count())), io_(*contexts_[0]), signals_(io_, SIGINT, SIGTERM) {
   // The others have no work until a connection comes: keep their threads.
   for (auto& c : contexts_) work_.push_back(asio::make_work_guard(*c));
   if (ctx.config.read_threads > 0) {

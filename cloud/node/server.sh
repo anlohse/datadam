@@ -28,10 +28,10 @@ case $cmd in
     run=(docker run -d --name bench-server --network host --ulimit nofile=1048576:1048576)
     case $kind in
       datadam)
-        # Caches about 60% of the memory: 45% objects, 15% RocksDB blocks.
+        # Caches about 60% of the memory: 45% objects, 15% RocksDB blocks. io-threads: auto.
         # DATADAM_IMAGE: another image than the run's, to compare two builds on one machine.
         "${run[@]}" -v /data/datadam:/var/lib/datadam "${DATADAM_IMAGE:-$IMAGE}" \
-          --requirepass "$PASSWORD" --memcache-port 0 --io-threads "$cpus" \
+          --requirepass "$PASSWORD" --memcache-port 0 \
           --cache-max-memory "$((mem_mb * 45 / 100))mb" --rocksdb-block-cache "$((mem_mb * 15 / 100))mb" \
           --rocksdb-write-buffer 128mb --rocksdb-background-jobs "$((cpus > 4 ? cpus / 2 : 2))" "$@" >/dev/null
         ;;

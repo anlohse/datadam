@@ -1243,7 +1243,7 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
         "# Server\r\ndatadam_version:{}\r\nredis_version:{}\r\nredis_mode:standalone\r\nprocess_id:{}\r\nrun_id:{}\r\n"
         "tcp_port:{}\r\nmemcache_port:{}\r\nio_threads:{}\r\nuptime_in_seconds:{}\r\nuptime_in_days:{}\r\n\r\n",
         DATADAM_VERSION, kRedisCompatVersion, DATADAM_GETPID(), ctx.run_id, ctx.config.port, ctx.config.memcache_port,
-        ctx.config.io_threads, uptime_s, uptime_s / 86400);
+        ctx.config.io_thread_count(), uptime_s, uptime_s / 86400);
   }
   if (want("clients")) {
     size_t blocked = 0, pubsub = 0;

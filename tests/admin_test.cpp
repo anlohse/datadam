@@ -234,6 +234,25 @@ TEST_F(AdminTest, ConfigSetAppliesAllOrNothing) {
   EXPECT_EQ(raw({"CONFIG", "SET", "log-level", "info"}), "+OK\r\n");
 }
 
+TEST(ConfigTest, IoThreadsAutoFollowsTheCpus) {
+  EXPECT_EQ(auto_io_threads(2), 2u);
+  EXPECT_EQ(auto_io_threads(8), 8u);
+  EXPECT_EQ(auto_io_threads(12), 8u);
+  EXPECT_EQ(auto_io_threads(16), 8u);
+  EXPECT_EQ(auto_io_threads(64), 32u);
+  EXPECT_EQ(auto_io_threads(0), 4u);  // unknown
+  Config c;
+  EXPECT_EQ(c.io_thread_count(), auto_io_threads(std::thread::hardware_concurrency()));
+  EXPECT_EQ(c.set("io-threads", "6"), "");
+  EXPECT_EQ(c.io_thread_count(), 6u);
+  EXPECT_NE(c.set("io-threads", "0"), "");
+  EXPECT_EQ(c.set("io-threads", "AUTO"), "");
+  EXPECT_EQ(c.io_threads, 0u);
+  bool shown = false;
+  for (const auto& [k, v] : c.dump()) shown |= k == "io-threads" && v == "auto";
+  EXPECT_TRUE(shown);
+}
+
 TEST_F(AdminTest, AuthGatesEveryCommand) {
   EXPECT_NE(raw({"AUTH", "x"}).find("without any password configured"), std::string::npos);
   EXPECT_EQ(raw({"CONFIG", "SET", "requirepass", "s3cret"}), "+OK\r\n");

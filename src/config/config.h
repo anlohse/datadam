@@ -44,7 +44,11 @@ struct Config {
   bool protected_mode = true;
   std::string tls_client_cert_file;
   std::string tls_client_key_file;
-  unsigned io_threads = 4;
+  // 0: auto (io_thread_count). Cloud phase 4, in memory with 800 connections:
+  // on 16 vCPUs 8 I/O threads did 20% more mixed reads and writes than 16, which
+  // left too little CPU to RocksDB and the read pool; on 4 and 8 vCPUs one
+  // thread per vCPU did best.
+  unsigned io_threads = 0;
   // Threads that load keys missing from the cache for plain reads (GET, MGET...),
   // so a disk read never holds an I/O thread; 0: the I/O thread reads the disk.
   unsigned read_threads = 64;
@@ -114,7 +118,14 @@ struct Config {
 
   // (name, value) pairs in config-file syntax, for CONFIG GET and INFO.
   std::vector<std::pair<std::string, std::string>> dump() const;
+
+  // The I/O threads to run: io-threads, or with auto one per CPU up to 8,
+  // then half the CPUs.
+  unsigned io_thread_count() const;
 };
+
+// io-threads auto for a machine with `cpus` CPUs.
+unsigned auto_io_threads(unsigned cpus);
 
 std::string_view fsync_policy_name(FsyncPolicy p);
 std::string_view write_path_name(WritePath p);

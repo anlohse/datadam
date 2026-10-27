@@ -347,7 +347,7 @@ MemcacheSession::Status MemcacheSession::process(std::string_view buf, size_t& p
           "STAT curr_connections {}\r\nSTAT total_connections {}\r\nSTAT curr_items {}\r\n"
           "STAT limit_maxbytes {}\r\nSTAT bytes {}\r\nSTAT cache_items {}\r\nSTAT get_hits {}\r\n"
           "STAT get_misses {}\r\nSTAT evictions {}\r\nEND\r\n",
-          DATADAM_GETPID(), uptime, now / 1000, DATADAM_VERSION, ctx_.config.io_threads,
+          DATADAM_GETPID(), uptime, now / 1000, DATADAM_VERSION, ctx_.config.io_thread_count(),
           ctx_.stats.connected_clients.load(), ctx_.stats.total_connections.load(), db.approx_size(),
           db.cache().options().max_memory, s.payload_bytes, s.items, s.hits, s.misses,
           s.evicted_lru + s.evicted_idle + s.evicted_age);

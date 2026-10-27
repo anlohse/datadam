@@ -56,6 +56,15 @@ std::string set_duration(std::string_view key, std::string_view value, std::chro
 
 }  // namespace
 
+unsigned auto_io_threads(unsigned cpus) {
+  if (cpus == 0) cpus = 4;  // unknown
+  return cpus <= 8 ? cpus : std::max(8u, cpus / 2);
+}
+
+unsigned Config::io_thread_count() const {
+  return io_threads != 0 ? io_threads : auto_io_threads(std::thread::hardware_concurrency());
+}
+
 std::string_view fsync_policy_name(FsyncPolicy p) {
   switch (p) {
     case FsyncPolicy::Always: return "always";
@@ -126,7 +135,13 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     return {};
   }
   if (key == "memcache-port") return set_number<uint16_t>(key, value, &memcache_port, 0, 65535);
-  if (key == "io-threads") return set_number<unsigned>(key, value, &io_threads, 1, 1024);
+  if (key == "io-threads") {
+    if (to_lower(value) == "auto") {
+      io_threads = 0;
+      return {};
+    }
+    return set_number<unsigned>(key, value, &io_threads, 1, 1024);
+  }
   if (key == "read-threads") return set_number<unsigned>(key, value, &read_threads, 0, 1024);
   if (key == "read-batch") return set_number<unsigned>(key, value, &read_batch, 1, 1024);
   if (key == "dir") {
@@ -315,7 +330,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-client-key-file", tls_client_key_file},
       {"replica-priority", std::to_string(replica_priority)},
       {"memcache-port", std::to_string(memcache_port)},
-      {"io-threads", std::to_string(io_threads)},
+      {"io-threads", io_threads == 0 ? "auto" : std::to_string(io_threads)},
       {"read-threads", std::to_string(read_threads)},
       {"read-batch", std::to_string(read_batch)},
       {"dir", dir},

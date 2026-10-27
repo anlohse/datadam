@@ -159,7 +159,7 @@ usage: datadam [config-file] [--option value]...
 On a successful start the server logs (to standard error) what it listens on and how the cache is set up:
 
 ```text
-2026-10-23 09:15:02.418 INFO  datadam 0.1.0 | redis 0.0.0.0:6379 | tls off | memcache 11211 | data dir ./data | fsync everysec
+2026-10-23 09:15:02.418 INFO  datadam 0.1.0 | redis 0.0.0.0:6379 | tls off | memcache 11211 | io threads 8 | data dir ./data | fsync everysec
 2026-10-23 09:15:02.418 INFO  cache: max 512mb min 64mb objects <= 4kb | page 64kb | 18 size classes | idle 300000ms age 0ms
 ```
 
