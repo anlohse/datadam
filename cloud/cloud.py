@@ -9,6 +9,7 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py memory [--pilot]         phase 2: in memory, datadam x Redis x Kvrocks
   python cloud/cloud.py large [--pilot]          phase 3: larger than memory, datadam x Kvrocks
   python cloud/cloud.py scale [--pilot]          phase 4: 4/8/16 vCPUs, datadam x Redis x Kvrocks, io-threads sweep
+  python cloud/cloud.py scale-image <image>      phase 4 again, datadam only, from another image
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -245,9 +246,10 @@ SCALE_WORKLOADS = [  # name, memtier arguments
 IO_THREADS = [1, 2, 4, 8, 16]
 
 
-def scenario_scale(outs, reps, seconds, keys, stores, sweep):
+def scenario_scale(outs, reps, seconds, keys, stores, sweep, image=None):
     """For each size, every store in turn (rotating which goes first), `reps`
-    times; then datadam with each `io-threads` up to the size's vCPUs."""
+    times; then datadam with each `io-threads` up to the size's vCPUs. With
+    `image`, the store "datadam-new" is datadam from that image."""
     wait_ready(outs)
 
     def step(node, command):
@@ -256,7 +258,10 @@ def scenario_scale(outs, reps, seconds, keys, stores, sweep):
             sys.exit(f"stopped: {command} failed on {node}")
 
     def fresh(node, store, tag, args=""):
-        step(node, f"{NODE}/server.sh start {store} {args}")
+        if store == "datadam-new":
+            step(node, f"DATADAM_IMAGE={image} {NODE}/server.sh start datadam {args}")
+        else:
+            step(node, f"{NODE}/server.sh start {store} {args}")
         step("loader", f"TARGET={node} {NODE}/dataset.sh {tag} {keys}")
 
     def measure(node, tag, name, args):
@@ -277,8 +282,8 @@ def scenario_scale(outs, reps, seconds, keys, stores, sweep):
         order = order[1:] + order[:1]
     for node, cpus in SCALE_SERVERS:
         for threads in [t for t in sweep if t <= cpus]:
-            tag = f"{node}-datadam-io{threads}"
-            fresh(node, "datadam", tag, f"--io-threads {threads}")
+            tag = f"{node}-{stores[0]}-io{threads}"
+            fresh(node, stores[0], tag, f"--io-threads {threads}")
             for name, args in SCALE_WORKLOADS[1:]:
                 measure(node, tag, name, args)
         step(node, f"{NODE}/server.sh stop")
@@ -376,6 +381,15 @@ def main():
             scenario_scale(outs, reps=1, seconds=10, keys=200_000, stores=stores, sweep=[1, 16])
         else:
             scenario_scale(outs, reps=2, seconds=45, keys=5_000_000, stores=stores, sweep=IO_THREADS)
+    elif cmd == "scale-image":
+        # python cloud/cloud.py scale-image <image>: phase 4 again for datadam
+        # only, from another image, on the same machines (the nodes pull the
+        # scripts first: DATADAM_IMAGE is newer than the run).
+        image = sys.argv[2]
+        for node, _ in SCALE_SERVERS:
+            run_on(outs, node, "git -C /opt/datadam pull -q")
+        scenario_scale(outs, reps=2, seconds=45, keys=5_000_000, stores=["datadam-new"], sweep=[4, 8, 16],
+                       image=image)
     elif cmd == "collect":
         collect(outs)
     else:
