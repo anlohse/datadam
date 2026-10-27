@@ -283,8 +283,11 @@ docker build --target asan .
   evictions and page steals and checks that every chunk and page comes back once the cache is emptied.
 - **UndefinedBehaviorSanitizer** reports signed overflow, misaligned or null accesses, bad shifts, invalid
   enum and bool values and the like.
-- ThreadSanitizer (`DATADAM_SANITIZE=thread`) builds, but needs instrumented dependencies (RocksDB) to give
-  results worth reading; it is not in CI yet.
+- **ThreadSanitizer** (`linux-tsan` preset, the Dockerfile's `tsan` stage) runs the unit tests with every
+  dependency instrumented too (`triplets/x64-linux-tsan`), in `.github/workflows/tsan.yml`: by hand and once a
+  week, since the dependencies take over an hour to build the first time. It looks for data races only
+  (`detect_deadlocks=0`): a write batch holds many key stripes in key order, safe because it only try-locks
+  while holding any, and the deadlock detector's lock-order graph never finished its cycle searches.
 
 ## Fuzzing
 
