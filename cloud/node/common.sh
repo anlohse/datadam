@@ -46,3 +46,9 @@ wait_ping() {  # host [port]
 upload() {
   aws s3 cp --recursive --only-show-errors --region "$REGION" "$RESULTS" "s3://$BUCKET/$RUN_ID/$NODE/"
 }
+
+# The server a loader script works on: the node named in TARGET (phase 4 has
+# one per size), else the first server.
+target_server() {
+  if [ -n "${TARGET:-}" ]; then node_ip "$TARGET"; else first_of_role server; fi
+}

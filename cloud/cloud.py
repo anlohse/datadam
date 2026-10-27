@@ -8,6 +8,7 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py smoke                    phase 1: start datadam, run cloud/node/smoke.sh on the loader
   python cloud/cloud.py memory [--pilot]         phase 2: in memory, datadam x Redis x Kvrocks
   python cloud/cloud.py large [--pilot]          phase 3: larger than memory, datadam x Kvrocks
+  python cloud/cloud.py scale [--pilot]          phase 4: 4/8/16 vCPUs, datadam x Redis x Kvrocks, io-threads sweep
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -229,6 +230,61 @@ def scenario_large(outs, keys, value_bytes, seconds, settle_s, reps, servers, ra
     collect(outs)
 
 
+# ---- phase 4: scaling with cores
+
+# Three servers of the same family, 4, 8 and 16 vCPUs, measured one at a time
+# from one loader. 800 connections: with 200, requests without a pipeline are
+# bounded by the round trip (phase 2), not by the server's cores.
+SCALE_SERVERS = [("s4", 4), ("s8", 8), ("s16", 16)]
+SCALE_MEMTIER = "--threads=16 --clients=50 --data-size=512 --random-data --distinct-client-seed --randomize"
+SCALE_WORKLOADS = [  # name, memtier arguments
+    ("read-gaussian", "--ratio=0:1 --key-pattern=G:G"),
+    ("mixed-gaussian", "--ratio=1:4 --key-pattern=G:G"),
+    ("mixed-gaussian-p16", "--ratio=1:4 --key-pattern=G:G --pipeline=16"),
+]
+IO_THREADS = [1, 2, 4, 8, 16]
+
+
+def scenario_scale(outs, reps, seconds, keys, stores, sweep):
+    """For each size, every store in turn (rotating which goes first), `reps`
+    times; then datadam with each `io-threads` up to the size's vCPUs."""
+    wait_ready(outs)
+
+    def step(node, command):
+        code, _, _ = run_on(outs, node, command)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+
+    def fresh(node, store, tag, args=""):
+        step(node, f"{NODE}/server.sh start {store} {args}")
+        step("loader", f"TARGET={node} {NODE}/dataset.sh {tag} {keys}")
+
+    def measure(node, tag, name, args):
+        step(node, f"{NODE}/sysstats.sh start {tag}-{name}")
+        step("loader", f"TARGET={node} {NODE}/load.sh {tag}-{name} {SCALE_MEMTIER} --key-maximum={keys} "
+                       f"--test-time={seconds} {args}")
+        step(node, f"{NODE}/sysstats.sh stop")
+
+    order = list(stores)
+    for rep in range(1, reps + 1):
+        for node, _ in SCALE_SERVERS:
+            for store in order:
+                tag = f"{node}-{store}-r{rep}"
+                fresh(node, store, tag)
+                for name, args in SCALE_WORKLOADS:
+                    measure(node, tag, name, args)
+            step(node, f"{NODE}/server.sh stop")
+        order = order[1:] + order[:1]
+    for node, cpus in SCALE_SERVERS:
+        for threads in [t for t in sweep if t <= cpus]:
+            tag = f"{node}-datadam-io{threads}"
+            fresh(node, "datadam", tag, f"--io-threads {threads}")
+            for name, args in SCALE_WORKLOADS[1:]:
+                measure(node, tag, name, args)
+        step(node, f"{NODE}/server.sh stop")
+    collect(outs)
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -313,6 +369,13 @@ def main():
         else:
             scenario_large(outs, keys=200_000_000, value_bytes=1000, seconds=60, settle_s=300, reps=2,
                            servers=["datadam", "kvrocks"], rates=LARGE_RATES)
+    elif cmd == "scale":
+        # python cloud/cloud.py scale [--pilot]: phase 4, 4/8/16 vCPUs, in memory.
+        stores = ["datadam", "redis", "kvrocks"]
+        if "--pilot" in sys.argv:
+            scenario_scale(outs, reps=1, seconds=10, keys=200_000, stores=stores, sweep=[1, 16])
+        else:
+            scenario_scale(outs, reps=2, seconds=45, keys=5_000_000, stores=stores, sweep=IO_THREADS)
     elif cmd == "collect":
         collect(outs)
     else:

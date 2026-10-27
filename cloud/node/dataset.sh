@@ -8,7 +8,7 @@ name=${1:?usage: dataset.sh <name> <keys> [bytes]}
 keys=${2:?keys}
 bytes=${3:-512}
 procs=${4:-8}
-server=$(first_of_role server)
+server=$(target_server)
 result=$(docker run --rm --network host -e REDIS_PASSWORD="$PASSWORD" -v /opt/datadam/bench:/bench:ro \
   python:3.12-slim python /bench/load_random.py "$server" 6379 "$keys" "$bytes" "$procs")
 echo "$result" | tee "$RESULTS/$name-load.txt"

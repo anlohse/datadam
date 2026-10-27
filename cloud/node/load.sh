@@ -6,7 +6,7 @@
 
 name=${1:?usage: load.sh <name> [memtier args...]}
 shift
-server=$(first_of_role server)
+server=$(target_server)
 
 rcli "$server" CONFIG RESETSTAT >/dev/null 2>&1 || true
 rcli "$server" INFO everything > "$RESULTS/$name-info-before.txt" 2>&1 || true
