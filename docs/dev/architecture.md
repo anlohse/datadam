@@ -29,7 +29,7 @@ datadam is a single executable, `datadam`, built from [main.cpp](../../src/main.
   batching and the secondary index registry, and is the only thing commands talk to;
 - one `ServerContext` ([redis_commands.h](../../src/server/redis_commands.h)) with what the protocol handlers
   share: settings, statistics, ACL users, the ACL log, scan cursors, replication state and the TLS context;
-- one `Server` ([server.h](../../src/server/server.h)): an Asio `io_context`, the listeners (RESP, RESP over
+- one `Server` ([server.h](../../src/server/server.h)): an Asio `io_context` per I/O thread, the listeners (RESP, RESP over
   TLS, memcache, each optional), the read pool and, on a replica, the replication link.
 
 There is no database number other than 0 (`SELECT` accepts only 0) and no clustering.
@@ -38,7 +38,7 @@ There is no database number other than 0 (`SELECT` accepts only 0) and no cluste
 
 | Thread(s) | Count | Created by | What runs there |
 |---|---|---|---|
-| I/O threads | `io-threads` (default 4) | `Server::run` starts `io-threads - 1` threads; the main thread is the last one | `asio::io_context::run`: every client connection (a C++20 coroutine on its own strand), the accept loops, the signal handler, the replica link coroutine, and the primary side of replication (`serve_replica`) |
+| I/O threads | `io-threads` (default 4) | `Server::run` starts `io-threads - 1` threads; the main thread is the last one | `asio::io_context::run` of an `io_context` of its own: the client connections handed to it (C++20 coroutines, each on its own strand), round-robin by `Server::accept_loop`. The first one (the main thread) also runs the accept loops, the signal handler, the replica link coroutine, `FAILOVER`, and the primary side of replication (`serve_replica`) |
 | Read pool | `read-threads` (default 64; 0 disables the pool) | `ReadPool` constructor ([read_pool.cpp](../../src/server/read_pool.cpp)) | `ReadPool::run`: loads keys that missed the cache for deferred plain reads (`Database::load_into_cache` / `load_many_into_cache`) |
 | Maintenance | 1 | `Maintenance` in [main.cpp](../../src/main.cpp) | Cache idle/age/TTL eviction every `cache-maintenance-interval` (default 1000 ms); once a second, `RocksStorage::sync_wal` when `fsync everysec` or `experimental-write-path wal-buffered`; once a second, `RocksStorage::trim_wal` when the WAL is retained (`wal-retention > 0`) |
 | Index backfills | one per index being built | `Database::start_backfill` ([index_ops.cpp](../../src/db/index_ops.cpp)) | `Database::run_backfill`: scans the `meta` column family under the index prefixes in chunks of 256 keys and writes their entries through `transact`; joined in `~Database` |
@@ -49,10 +49,13 @@ logging it with `log_error`. The replica link is not a thread: `ReplicaLink::sta
 strand of the server's `io_context` ([replica_link.cpp](../../src/server/replica_link.cpp)) that connects,
 syncs, applies the stream and reconnects one second after the link drops.
 
-Every connection runs on a strand (`asio::make_strand(io_)` in `Server::accept_loop`), so the operations of one
-connection never run concurrently, but consecutive steps of a connection may run on different I/O threads. This
-is why anything thread-local (the write batch, see [concurrency.md](concurrency.md)) must never span a
-`co_await`.
+Every connection runs on a strand of one I/O thread's `io_context` (`Server::accept_loop`), so the operations of one
+connection never run concurrently, and they all run on that thread. Other connections of the thread run whenever
+one suspends, which is why anything thread-local (the write batch, see [concurrency.md](concurrency.md)) must
+never span a `co_await`. A context per thread rather than one shared by all: with one, every completion went
+through a single scheduler lock and epoll, and 16 I/O threads did barely more than 8 (cloud phase 4, 2026-10-27).
+The cost: a command that holds its thread for long (a big `KEYS`, a slow script) delays the other connections of
+that thread, not just one thread's worth of work.
 
 ## Components and dependencies
 
@@ -160,23 +163,23 @@ deferred to the read pool.
 5. `ServerContext`: applies `requirepass` and the `user` lines to the ACL, and creates the TLS context when
    `tls-port` is set (a bad certificate is fatal).
 6. The `Maintenance` thread starts.
-7. `Server`: creates the `io_context` and the SIGINT/SIGTERM `signal_set`, the `ReadPool` (if `read-threads > 0`),
+7. `Server`: creates the `io_context`s (one per I/O thread, each kept running by a work guard) and the SIGINT/SIGTERM `signal_set`, the `ReadPool` (if `read-threads > 0`),
    and installs `ServerContext::replicaof`.
 8. `Server::start`: binds the enabled listeners (on non-Windows systems with `SO_REUSEADDR`), spawns the accept
    loops, starts following the primary if `replicaof` is set, and arms the signal handler.
-9. Logs the summary lines and calls `Server::run`, which returns when the `io_context` stops.
+9. Logs the summary lines and calls `Server::run`, which returns when the `io_context`s stop.
 
 Any exception escaping this sequence is logged as `fatal: ...` and the process exits with status 1.
 
 ## Shutdown
 
-SIGINT or SIGTERM calls `io_.stop()`. `Server::run` joins the extra I/O threads and returns; `main` logs
+SIGINT or SIGTERM calls `Server::stop`, which stops every `io_context`. `Server::run` joins the extra I/O threads and returns; `main` logs
 `stopped` and the objects are destroyed in reverse order of construction:
 
 1. `~Server`: clears `ServerContext::replicaof`, stops and destroys the replica link, unsets
    `ServerContext::read_pool` and cancels every pending `on_next_write` wait (blocked `CDC.READ` connections
    hold timers of the `io_context`). Then its members go: the `ReadPool` finishes the loads under way and drops
-   the queued ones (their waiters are told "not cached"), then the `io_context`, which destroys the suspended
+   the queued ones (their waiters are told "not cached"), then the `io_context`s, which destroy the suspended
    connection coroutines.
 2. `~Maintenance`: stops and joins the maintenance thread.
 3. `~ServerContext`, `~Database`: the database sets `stopping_` and joins the backfill threads (a backfill

@@ -59,6 +59,12 @@ std::string peer_ip(const tcp::socket& socket) {
   return ec ? std::string() : ep.address().to_string();
 }
 
+std::vector<std::unique_ptr<asio::io_context>> make_contexts(unsigned n) {
+  std::vector<std::unique_ptr<asio::io_context>> out;
+  for (unsigned i = 0; i < std::max(n, 1u); ++i) out.push_back(std::make_unique<asio::io_context>(1));
+  return out;
+}
+
 // Reads more bytes into `in`; returns false when the peer is gone.
 // Waits, without holding the thread, for the read pool to load `key`;
 // completes with whether it is now cached.
@@ -77,7 +83,9 @@ auto async_load(ReadPool& pool, std::string_view key, Token&& token) {
 }  // namespace
 
 Server::Server(ServerContext& ctx)
-    : ctx_(ctx), io_(static_cast<int>(ctx.config.io_threads)), signals_(io_, SIGINT, SIGTERM) {
+    : ctx_(ctx), contexts_(make_contexts(ctx.config.io_threads)), io_(*contexts_[0]), signals_(io_, SIGINT, SIGTERM) {
+  // The others have no work until a connection comes: keep their threads.
+  for (auto& c : contexts_) work_.push_back(asio::make_work_guard(*c));
   if (ctx.config.read_threads > 0) {
     read_pool_ = std::make_unique<ReadPool>(ctx.db, ctx.config.read_threads, ctx.config.read_batch);
     ctx_.read_pool = read_pool_.get();
@@ -133,18 +141,20 @@ void Server::start(bool ephemeral_ports) {
   signals_.async_wait([this](const asio::error_code& ec, int sig) {
     if (ec) return;
     log_info("signal {} received, shutting down", sig);
-    io_.stop();
+    stop();
   });
 }
 
 void Server::run() {
   std::vector<std::thread> threads;
-  for (unsigned i = 1; i < ctx_.config.io_threads; ++i) threads.emplace_back([this] { io_.run(); });
+  for (size_t i = 1; i < contexts_.size(); ++i) threads.emplace_back([c = contexts_[i].get()] { c->run(); });
   io_.run();
   for (auto& t : threads) t.join();
 }
 
-void Server::stop() { io_.stop(); }
+void Server::stop() {
+  for (auto& c : contexts_) c->stop();
+}
 
 std::string Server::failover(const std::string& host, uint16_t port, int64_t timeout_ms, bool force, bool abort) {
   if (abort) {
@@ -283,8 +293,10 @@ asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto
     }
     asio::error_code ignored;
     socket.set_option(tcp::no_delay(true), ignored);
-    // Each connection runs on its own strand: its operations never run concurrently.
-    auto strand = asio::make_strand(io_);
+    // Each connection runs on its own strand, of the next io_context: its
+    // operations never run concurrently (others post to it: wake-ups, kills).
+    asio::io_context& io = *contexts_[next_context_++ % contexts_.size()];
+    auto strand = asio::make_strand(io);
     switch (proto) {
       case Protocol::Redis: asio::co_spawn(strand, redis_session(std::move(socket)), asio::detached); break;
       case Protocol::RedisTls: asio::co_spawn(strand, redis_tls_session(std::move(socket)), asio::detached); break;
