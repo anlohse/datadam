@@ -6,7 +6,8 @@
 run_id    = "memory"
 max_hours = 4
 nodes = {
-  # On demand: a Spot i4i.2xlarge was taken back seconds after launch on the first try.
+  # On demand: on 2026-10-26 AWS took back a Spot i4i.2xlarge seconds after launch,
+  # and the Spot c7i.4xlarge loader during the pilot.
   server = { role = "server", instance_type = "i4i.2xlarge", spot = false }
-  loader = { role = "loader", instance_type = "c7i.4xlarge" }
+  loader = { role = "loader", instance_type = "c7i.4xlarge", spot = false }
 }
