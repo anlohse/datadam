@@ -31,7 +31,9 @@ namespace datadam {
 struct alignas(64) ThreadStats {
   struct Command {
     std::atomic<uint64_t> calls{0};     // ran (its reply may be an error)
-    std::atomic<uint64_t> usec{0};      // time spent running it
+    // Time spent running it. In nanoseconds: a cached GET takes less than a
+    // microsecond, and whole microseconds per call would count most as 0.
+    std::atomic<uint64_t> nsec{0};
     std::atomic<uint64_t> failed{0};    // ran and replied an error
     std::atomic<uint64_t> rejected{0};  // refused before running (arity, ACL, READONLY...)
   };
@@ -236,7 +238,7 @@ std::string build_info(ServerContext& ctx, std::string_view section);
 // What the threads counted per command, for the commands used, by name.
 struct CommandTotals {
   std::string_view name;
-  uint64_t calls = 0, usec = 0, failed = 0, rejected = 0;
+  uint64_t calls = 0, nsec = 0, failed = 0, rejected = 0;
 };
 std::vector<CommandTotals> command_totals(const ServerStats& stats);
 // Error replies by code (ERR, WRONGTYPE...), by code.

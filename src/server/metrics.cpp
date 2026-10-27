@@ -120,7 +120,7 @@ void commands(std::string& out, ServerContext& ctx) {
       {"datadam_commands_total", "Commands run (INFO commandstats calls)",
        [](const CommandTotals& c) { return static_cast<double>(c.calls); }},
       {"datadam_commands_duration_seconds_total", "Time spent running commands (INFO commandstats usec)",
-       [](const CommandTotals& c) { return static_cast<double>(c.usec) / 1e6; }},
+       [](const CommandTotals& c) { return static_cast<double>(c.nsec) / 1e9; }},
       {"datadam_commands_failed_total", "Commands that ran and replied an error",
        [](const CommandTotals& c) { return static_cast<double>(c.failed); }},
       {"datadam_commands_rejected_total", "Commands refused before running (arity, ACL, READONLY...)",

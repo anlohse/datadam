@@ -1072,7 +1072,7 @@ class CommandAccounting {
       ThreadStats::Command& c = t.by_command[spec_->id];
       bump(t.commands);
       bump(c.calls);
-      bump(c.usec, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+      bump(c.nsec, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                              std::chrono::steady_clock::now() - started_)
                                              .count()));
       if (errors > 0) bump(c.failed);
@@ -1297,7 +1297,7 @@ std::vector<CommandTotals> command_totals(const ServerStats& stats) {
     for (size_t i = 0; i < kMaxAclCommands; ++i) {
       const ThreadStats::Command& c = t.by_command[i];
       by_id[i].calls += c.calls.load(std::memory_order_relaxed);
-      by_id[i].usec += c.usec.load(std::memory_order_relaxed);
+      by_id[i].nsec += c.nsec.load(std::memory_order_relaxed);
       by_id[i].failed += c.failed.load(std::memory_order_relaxed);
       by_id[i].rejected += c.rejected.load(std::memory_order_relaxed);
     }
@@ -1442,7 +1442,8 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
     out += "# Commandstats\r\n";
     for (const CommandTotals& c : command_totals(ctx.stats)) {
       out += std::format("cmdstat_{}:calls={},usec={},usec_per_call={:.2f},rejected_calls={},failed_calls={}\r\n", c.name,
-                         c.calls, c.usec, c.calls ? static_cast<double>(c.usec) / static_cast<double>(c.calls) : 0.0,
+                         c.calls, c.nsec / 1000,
+                         c.calls ? static_cast<double>(c.nsec) / 1000 / static_cast<double>(c.calls) : 0.0,
                          c.rejected, c.failed);
     }
     out += "\r\n";
