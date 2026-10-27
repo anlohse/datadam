@@ -42,6 +42,18 @@
       }
     },
     {
+      "name": "linux-tsan",
+      "displayName": "Linux with ThreadSanitizer (dependencies too: triplets/x64-linux-tsan)",
+      "inherits": "linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "DATADAM_SANITIZE": "thread",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-tsan",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/vcpkg_installed_tsan"
+      }
+    },
+    {
       "name": "linux-fuzz",
       "displayName": "Linux libFuzzer targets (Clang, ASan + UBSan)",
       "inherits": "linux",
@@ -61,11 +73,13 @@
     { "name": "windows-debug", "configurePreset": "windows", "configuration": "Debug" },
     { "name": "linux", "configurePreset": "linux" },
     { "name": "linux-asan", "configurePreset": "linux-asan" },
-    { "name": "linux-fuzz", "configurePreset": "linux-fuzz" }
+    { "name": "linux-fuzz", "configurePreset": "linux-fuzz" },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan" }
   ],
   "testPresets": [
     { "name": "windows-release", "configurePreset": "windows", "configuration": "Release", "output": { "outputOnFailure": true } },
     { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
-    { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } }
+    { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan", "output": { "outputOnFailure": true } }
   ]
 }

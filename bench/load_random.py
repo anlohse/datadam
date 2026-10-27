@@ -7,6 +7,7 @@ hundred MB, and the data would not really be bigger than memory. This loader
 writes os.urandom() values instead: incompressible, a different one per key.
 
 usage: python load_random.py <host> <port> <keys> <value-bytes> [processes]
+env: REDIS_PASSWORD, sent with AUTH first when set
 prints: loaded=<keys acknowledged> errors=<error replies> seconds=<s> first_error=<text>
 """
 import multiprocessing
@@ -23,6 +24,14 @@ def load_range(args):
     host, port, first, last, size = args
     s = socket.create_connection((host, port))
     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    password = os.environ.get("REDIS_PASSWORD", "").encode()
+    if password:
+        s.sendall(b"*2\r\n$4\r\nAUTH\r\n$%d\r\n%s\r\n" % (len(password), password))
+        reply = b""
+        while not reply.endswith(b"\r\n"):
+            reply += s.recv(1)
+        if not reply.startswith(b"+OK"):
+            raise SystemExit(f"AUTH failed: {reply!r}")
     expected = last - first + 1
     counts = {"ok": 0, "err": 0, "first_error": ""}
 

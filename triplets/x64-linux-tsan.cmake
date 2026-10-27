@@ -1,0 +1,10 @@
+# The x64-linux dependencies built with ThreadSanitizer (release only), for the
+# linux-tsan preset: TSan must see every memory access, the libraries' too.
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Linux)
+set(VCPKG_BUILD_TYPE release)
+set(VCPKG_C_FLAGS "-fsanitize=thread -g")
+set(VCPKG_CXX_FLAGS "-fsanitize=thread -g")
+set(VCPKG_LINKER_FLAGS "-fsanitize=thread")

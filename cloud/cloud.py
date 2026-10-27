@@ -108,6 +108,62 @@ def wait_ready(outs, limit_s=900):
                  "(see /var/log/datadam-setup.log on the node)")
 
 
+# ---- phase 2: in memory
+
+NODE = "/opt/datadam/cloud/node"
+# 200 connections from the loader; values of 512 incompressible bytes for the
+# load, memtier's own for its writes.
+MEMTIER = "--threads=8 --clients=25 --data-size=512 --random-data --distinct-client-seed"
+WORKLOADS = [  # name, memtier arguments, writes?
+    ("read-uniform", "--ratio=0:1 --key-pattern=R:R", False),
+    ("read-gaussian", "--ratio=0:1 --key-pattern=G:G", False),
+    ("mixed-gaussian", "--ratio=1:4 --key-pattern=G:G", True),
+    ("mixed-gaussian-p16", "--ratio=1:4 --key-pattern=G:G --pipeline=16", True),
+    ("write-uniform", "--ratio=1:0 --key-pattern=R:R", True),
+]
+# The latency curve: the mixed workload at fixed offered loads (requests per
+# second in total), the same for every server, instead of as fast as it goes.
+RATES = [100_000, 250_000, 400_000]
+
+
+def scenario_memory(outs, reps, seconds, keys, servers, rates):
+    """Each server in turn, `reps` times (rotating which goes first): the five
+    workloads of bench/memtier.sh, then the latency curve. A workload that
+    writes starts from a freshly loaded data set (memtier's values compress)."""
+    wait_ready(outs)
+
+    def step(node, command):
+        code, _, _ = run_on(outs, node, command)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+
+    def fresh(server, tag):
+        step("server", f"{NODE}/server.sh start {server}")
+        step("loader", f"{NODE}/dataset.sh {tag} {keys}")
+
+    def measure(tag, name, args):
+        step("server", f"{NODE}/sysstats.sh start {tag}-{name}")
+        step("loader", f"{NODE}/load.sh {tag}-{name} {MEMTIER} --key-maximum={keys} --test-time={seconds} {args}")
+        step("server", f"{NODE}/sysstats.sh stop")
+
+    order = list(servers)
+    for rep in range(1, reps + 1):
+        for server in order:
+            tag = f"{server}-r{rep}"
+            fresh(server, tag)
+            for name, args, writes in WORKLOADS:
+                if writes:
+                    fresh(server, f"{tag}-{name}")
+                measure(tag, name, args)
+            fresh(server, f"{tag}-curve")
+            for rate in rates:
+                per_connection = max(1, rate // 200)
+                measure(tag, f"rate{rate // 1000}k", f"--ratio=1:4 --key-pattern=G:G --rate-limiting={per_connection}")
+        order = order[1:] + order[:1]
+    step("server", f"{NODE}/server.sh stop")
+    collect(outs)
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -174,6 +230,15 @@ def main():
             if code != 0:
                 sys.exit(f"smoke failed on {node}")
         collect(outs)
+    elif cmd == "memory":
+        # python cloud/cloud.py memory [--pilot]: phase 2; the pilot checks the
+        # whole loop in a few minutes on the same machines.
+        if "--pilot" in sys.argv:
+            scenario_memory(outs, reps=1, seconds=10, keys=200_000, servers=["datadam", "redis", "kvrocks"],
+                            rates=RATES[:1])
+        else:
+            scenario_memory(outs, reps=3, seconds=60, keys=5_000_000, servers=["datadam", "redis", "kvrocks"],
+                            rates=RATES)
     elif cmd == "collect":
         collect(outs)
     else:

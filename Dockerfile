@@ -51,6 +51,21 @@ COPY . .
 ENV ASAN_OPTIONS=abort_on_error=1:detect_stack_use_after_return=1:strict_string_checks=1     UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
 RUN cmake --preset linux-asan && cmake --build --preset linux-asan --parallel "$VCPKG_MAX_CONCURRENCY"     && ctest --preset linux-asan && sh tests/run_integration.sh build/linux-asan/datadam
 
+# The unit tests built with ThreadSanitizer, the dependencies too (a triplet
+# of our own, so their accesses are seen):  docker build --target tsan .
+FROM toolchain AS tsan-deps
+WORKDIR /src
+COPY vcpkg.json .
+COPY triplets/ triplets/
+ARG BUILD_JOBS=8
+ENV VCPKG_MAX_CONCURRENCY=${BUILD_JOBS}
+RUN --mount=type=cache,target=/root/.cache/vcpkg     "$VCPKG_ROOT/vcpkg" install --triplet x64-linux-tsan --overlay-triplets=triplets       --x-install-root=/src/build/vcpkg_installed_tsan
+
+FROM tsan-deps AS tsan
+COPY . .
+ENV TSAN_OPTIONS=second_deadlock_stack=1:history_size=4
+RUN cmake --preset linux-tsan && cmake --build --preset linux-tsan --parallel "$VCPKG_MAX_CONCURRENCY"     && ctest --preset linux-tsan
+
 # The libFuzzer targets (fuzz/), built with Clang, ASan and UBSan:
 #   docker build --target fuzz -t datadam:fuzz .
 #   docker run --rm datadam:fuzz build/linux-fuzz/fuzz_resp -max_total_time=60 fuzz/corpus/resp
