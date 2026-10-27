@@ -37,8 +37,9 @@ case $cmd in
           --maxmemory-policy noeviction --io-threads "$((cpus > 8 ? 8 : cpus))" --io-threads-do-reads yes "$@" >/dev/null
         ;;
       kvrocks)
-        "${run[@]}" -v /data/kvrocks:/var/lib/kvrocks apache/kvrocks:latest --bind 0.0.0.0 --port 6379 \
-          --requirepass "$PASSWORD" --dir /var/lib/kvrocks --workers "$cpus" \
+        # Not over /var/lib/kvrocks: the image keeps its kvrocks.conf there.
+        "${run[@]}" -v /data/kvrocks:/kvrocks-data apache/kvrocks:latest --bind 0.0.0.0 --port 6379 \
+          --requirepass "$PASSWORD" --dir /kvrocks-data --workers "$cpus" \
           --rocksdb.block_cache_size "$((mem_mb * 60 / 100))" "$@" >/dev/null
         ;;
       *) echo "unknown server $kind" >&2; exit 2 ;;
