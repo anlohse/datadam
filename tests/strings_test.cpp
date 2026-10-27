@@ -36,6 +36,10 @@ TEST(Strings, ParseNumbers) {
   EXPECT_DOUBLE_EQ(*parse_double("+1.5"), 1.5);
   EXPECT_TRUE(std::isinf(*parse_double("-inf")));
   EXPECT_FALSE(parse_double("nan"));
+  // Only the view's characters, not what follows them in memory.
+  std::string buf = "1.5e5";
+  EXPECT_EQ(parse_long_double(std::string_view(buf).substr(0, 3)), 1.5L);
+  EXPECT_DOUBLE_EQ(*parse_double(std::string_view(buf).substr(0, 3)), 1.5);
   EXPECT_EQ(format_double(10.5), "10.5");
   EXPECT_EQ(format_long_double(3.0L), "3");
 }

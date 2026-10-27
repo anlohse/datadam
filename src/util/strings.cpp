@@ -69,7 +69,10 @@ std::optional<uint64_t> parse_uint64(std::string_view s) {
 std::optional<double> parse_double(std::string_view s) { return parse_floating<double>(s); }
 
 std::optional<long double> parse_long_double(std::string_view s) {
-  return parse_floating<long double>(s);
+  // libstdc++'s from_chars for long double calls strtold on the input, which
+  // reads up to a NUL: past the end of an argument (fuzz_commands, INCRBYFLOAT).
+  std::string terminated(s);
+  return parse_floating<long double>(terminated);
 }
 
 std::string format_double(double v) { return format_floating(v); }
