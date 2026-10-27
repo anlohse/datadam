@@ -38,7 +38,8 @@ There is no database number other than 0 (`SELECT` accepts only 0) and no cluste
 
 | Thread(s) | Count | Created by | What runs there |
 |---|---|---|---|
-| I/O threads | `io-threads` (default 4) | `Server::run` starts `io-threads - 1` threads; the main thread is the last one | `asio::io_context::run` of an `io_context` of its own: the client connections handed to it (C++20 coroutines, each on its own strand), round-robin by `Server::accept_loop`. The first one (the main thread) also runs the accept loops, the signal handler, the replica link coroutine, `FAILOVER`, and the primary side of replication (`serve_replica`) |
+| I/O threads | `io-threads` (default 4) | `Server::run` | `asio::io_context::run` of an `io_context` of its own: the client connections handed to it (C++20 coroutines, each on its own strand), round-robin by `Server::accept_loop`, including the primary side of replication (`serve_replica`) on a replica's connection |
+| Control (the main thread) | 1 | `main` calls `Server::run` | The control `io_context`, which serves no connection: the accept loops, the signal handler, the replica link coroutine and `FAILOVER`. A long command on an I/O thread cannot hold them up |
 | Read pool | `read-threads` (default 64; 0 disables the pool) | `ReadPool` constructor ([read_pool.cpp](../../src/server/read_pool.cpp)) | `ReadPool::run`: loads keys that missed the cache for deferred plain reads (`Database::load_into_cache` / `load_many_into_cache`) |
 | Maintenance | 1 | `Maintenance` in [main.cpp](../../src/main.cpp) | Cache idle/age/TTL eviction every `cache-maintenance-interval` (default 1000 ms); once a second, `RocksStorage::sync_wal` when `fsync everysec` or `experimental-write-path wal-buffered`; once a second, `RocksStorage::trim_wal` when the WAL is retained (`wal-retention > 0`) |
 | Index backfills | one per index being built | `Database::start_backfill` ([index_ops.cpp](../../src/db/index_ops.cpp)) | `Database::run_backfill`: scans the `meta` column family under the index prefixes in chunks of 256 keys and writes their entries through `transact`; joined in `~Database` |
@@ -46,7 +47,7 @@ There is no database number other than 0 (`SELECT` accepts only 0) and no cluste
 
 The maintenance loop wakes up every `min(cache-maintenance-interval, 1 s)` and catches every `std::exception`,
 logging it with `log_error`. The replica link is not a thread: `ReplicaLink::start` spawns a coroutine on its own
-strand of the server's `io_context` ([replica_link.cpp](../../src/server/replica_link.cpp)) that connects,
+strand of the server's control `io_context` ([replica_link.cpp](../../src/server/replica_link.cpp)) that connects,
 syncs, applies the stream and reconnects one second after the link drops.
 
 Every connection runs on a strand of one I/O thread's `io_context` (`Server::accept_loop`), so the operations of one
@@ -54,6 +55,10 @@ connection never run concurrently, and they all run on that thread. Other connec
 one suspends, which is why anything thread-local (the write batch, see [concurrency.md](concurrency.md)) must
 never span a `co_await`. A context per thread rather than one shared by all: with one, every completion went
 through a single scheduler lock and epoll, and 16 I/O threads did barely more than 8 (cloud phase 4, 2026-10-27).
+The price: a connection waits for whatever runs on its thread. While a script runs (`EVAL`, `FCALL`), the
+connections of its thread wait for its end, so `accept_loop` gives new connections to another thread: a client
+connecting to send `SCRIPT KILL` gets through. The accept loop picks the thread once the connection is there and
+creates the socket on that thread's `io_context`, since a socket completes its operations on its own context.
 The cost: a command that holds its thread for long (a big `KEYS`, a slow script) delays the other connections of
 that thread, not just one thread's worth of work.
 
@@ -163,7 +168,7 @@ deferred to the read pool.
 5. `ServerContext`: applies `requirepass` and the `user` lines to the ACL, and creates the TLS context when
    `tls-port` is set (a bad certificate is fatal).
 6. The `Maintenance` thread starts.
-7. `Server`: creates the `io_context`s (one per I/O thread, each kept running by a work guard) and the SIGINT/SIGTERM `signal_set`, the `ReadPool` (if `read-threads > 0`),
+7. `Server`: creates the `io_context`s (the control one and one per I/O thread, each kept running by a work guard) and the SIGINT/SIGTERM `signal_set`, the `ReadPool` (if `read-threads > 0`),
    and installs `ServerContext::replicaof`.
 8. `Server::start`: binds the enabled listeners (on non-Windows systems with `SO_REUSEADDR`), spawns the accept
    loops, starts following the primary if `replicaof` is set, and arms the signal handler.

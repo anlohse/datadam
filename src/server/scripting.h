@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "db/key_watch.h"
@@ -82,6 +83,8 @@ class ScriptEngine {
   // the error to reply (nothing runs, or it already wrote).
   std::string kill();
   bool running() const { return running_.load(); }
+  // The thread running the script, while one runs.
+  std::thread::id runner() const { return runner_.load(std::memory_order_relaxed); }
   // How long the running script has been running (0: none runs).
   int64_t running_us() const;
   int64_t running_ms() const { return running_us() / 1000; }
@@ -147,6 +150,7 @@ class ScriptEngine {
   Run* run_ = nullptr;
   Loading* loading_ = nullptr;
   std::atomic<bool> running_{false};
+  std::atomic<std::thread::id> runner_{};
   std::atomic<bool> wrote_{false};
   std::atomic<bool> kill_{false};
   std::atomic<int64_t> started_us_{0};  // steady clock

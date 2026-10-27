@@ -59,9 +59,10 @@ std::string peer_ip(const tcp::socket& socket) {
   return ec ? std::string() : ep.address().to_string();
 }
 
-std::vector<std::unique_ptr<asio::io_context>> make_contexts(unsigned n) {
+// The control context, then one per io-thread.
+std::vector<std::unique_ptr<asio::io_context>> make_contexts(unsigned io_threads) {
   std::vector<std::unique_ptr<asio::io_context>> out;
-  for (unsigned i = 0; i < std::max(n, 1u); ++i) out.push_back(std::make_unique<asio::io_context>(1));
+  for (unsigned i = 0; i <= std::max(io_threads, 1u); ++i) out.push_back(std::make_unique<asio::io_context>(1));
   return out;
 }
 
@@ -147,8 +148,11 @@ void Server::start(bool ephemeral_ports) {
 
 void Server::run() {
   std::vector<std::thread> threads;
-  for (size_t i = 1; i < contexts_.size(); ++i) threads.emplace_back([c = contexts_[i].get()] { c->run(); });
-  io_.run();
+  for (size_t i = 1; i < contexts_.size(); ++i) {
+    threads.emplace_back([c = contexts_[i].get()] { c->run(); });
+    threads_.push_back(threads.back().get_id());
+  }
+  io_.run();  // the accept loops read threads_ from here on
   for (auto& t : threads) t.join();
 }
 
@@ -284,18 +288,30 @@ std::string Server::follow(const std::string& host, uint16_t port) {
 }
 
 asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto) {
+  // The context of a connection is chosen once it is there (a script may have
+  // started meanwhile), and its socket is made on it: a socket completes its
+  // operations on the context it belongs to, not on the handler's.
+  acceptor.non_blocking(true);
   for (;;) {
-    auto [ec, socket] = co_await acceptor.async_accept(kUseAwaitable);
+    auto [ec] = co_await acceptor.async_wait(tcp::acceptor::wait_read, kUseAwaitable);
+    if (ec == asio::error::operation_aborted) co_return;
+    size_t n = contexts_.size() - 1;
+    size_t pick = next_context_++ % n;
+    if (n > 1 && pick < threads_.size() && ctx_.scripts.running() && threads_[pick] == ctx_.scripts.runner()) {
+      pick = next_context_++ % n;
+    }
+    asio::io_context& io = *contexts_[pick + 1];
+    tcp::socket socket(io);
+    if (!ec) acceptor.accept(socket, ec);
+    if (ec == asio::error::would_block || ec == asio::error::try_again) continue;
     if (ec) {
-      if (ec == asio::error::operation_aborted) co_return;
       log_warn("accept failed: {}", ec.message());
       continue;
     }
     asio::error_code ignored;
     socket.set_option(tcp::no_delay(true), ignored);
-    // Each connection runs on its own strand, of the next io_context: its
-    // operations never run concurrently (others post to it: wake-ups, kills).
-    asio::io_context& io = *contexts_[next_context_++ % contexts_.size()];
+    // Each connection runs on its own strand: its operations never run
+    // concurrently (others post to it: wake-ups, kills).
     auto strand = asio::make_strand(io);
     switch (proto) {
       case Protocol::Redis: asio::co_spawn(strand, redis_session(std::move(socket)), asio::detached); break;

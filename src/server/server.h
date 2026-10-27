@@ -15,8 +15,9 @@
 namespace datadam {
 
 // TCP front end: io-threads threads, each running an io_context of its own; every
-// connection is a coroutine. Listens for RESP, RESP over TLS (tls-port) and
-// memcache, each optional.
+// connection is a coroutine. The thread that calls run() accepts the
+// connections. Listens for RESP, RESP over TLS (tls-port) and memcache, each
+// optional.
 struct OutputPump;
 
 class Server {
@@ -71,12 +72,17 @@ class Server {
   // One io_context per io-thread, each run by its own thread. A single one
   // shared by all the threads made every completion go through one scheduler
   // lock and one epoll: 16 threads did barely more than 8, with a fifth of the
-  // CPU idle and twice the system time. Connections go to them round-robin;
-  // the first also runs the listeners, signals, replication and FAILOVER.
+  // CPU idle and twice the system time. Connections go to them round-robin,
+  // past the one running a script: a connection there waits for its end, so
+  // SCRIPT KILL could not come through it.
+  // contexts_[0] serves no connection: the listeners, signals, replication and
+  // FAILOVER run there, on the thread that calls run(), and a long command
+  // cannot hold them up.
   std::vector<std::unique_ptr<asio::io_context>> contexts_;
   std::vector<asio::executor_work_guard<asio::io_context::executor_type>> work_;
-  asio::io_context& io_;     // contexts_[0]
-  size_t next_context_ = 0;  // only the accept loops (on io_) use it
+  std::vector<std::thread::id> threads_;  // of contexts_[i + 1], set by run()
+  asio::io_context& io_;                  // contexts_[0]
+  size_t next_context_ = 0;               // only the accept loops (on io_) use it
   asio::signal_set signals_;
   // After io_: destroyed first, finishing its loads while their completions
   // can still be posted.

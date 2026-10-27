@@ -737,6 +737,7 @@ void ScriptEngine::run(Cmd& c, int ref, bool as_function, std::span<const std::s
   wrote_ = false;
   kill_ = false;
   started_us_ = steady_us();
+  runner_ = std::this_thread::get_id();
   running_ = true;
 
   int base = lua_gettop(L);
