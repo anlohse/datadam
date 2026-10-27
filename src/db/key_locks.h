@@ -176,12 +176,6 @@ class KeyLocks {
 
    private:
     friend class KeyLocks;
-    struct World {};
-    explicit Multi(KeyLocks& locks, World) : locks_(locks), world_(true) {
-      locks_.lock_world();
-      locks_.wait_all_committed();
-    }
-
     KeyLocks& locks_;
     std::vector<size_t> stripes_;
     bool world_ = false;
@@ -198,7 +192,13 @@ class KeyLocks {
   // for a thread that holds no stripe. Not the kStripes stripe mutexes one by
   // one: ThreadSanitizer's deadlock detector tracks at most 4096 held locks,
   // and spun for hours on FLUSHALL.
-  Multi lock_all() { return Multi(*this, Multi::World{}); }
+  Multi lock_all() {
+    Multi m(*this, {});
+    lock_world();
+    m.world_ = true;
+    wait_all_committed();
+    return m;
+  }
 
  private:
   static constexpr size_t kReaderSlots = 64;
