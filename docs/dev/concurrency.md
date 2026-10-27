@@ -472,6 +472,13 @@ and `IndexTest.ConcurrentUniqueClaimsLetOneWin` exercise these rules with severa
 
 ## Metrics
 
+Counters on the hot path are per thread (`PerThread`, [per_thread.h](../../src/util/per_thread.h)): each
+thread that counts gets a block of its own, written with `bump()` (a relaxed load and store, not an atomic
+read-modify-write, since no other thread writes it), and `INFO` or `/metrics` adds the blocks up under the
+set's mutex, which a thread takes only the first time it counts. `ThreadStats` (commands, time, errors,
+network bytes) and `Database`'s keyspace hits and misses work this way; one shared atomic incremented by
+every command from 16 threads would bounce its cache line between cores.
+
 All histograms are `LatencyHistogram` ([latency_histogram.h](../../src/util/latency_histogram.h)): lock-free
 atomic buckets, four per power of two from 1 us to about a minute (108 buckets), so a percentile is reported as
 its bucket's upper bound, within 25%. `INFO latency` prints each as `calls`, `p50`, `p99`, `p99.9`, `p99.99`,

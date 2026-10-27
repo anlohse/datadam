@@ -70,7 +70,7 @@ MemcacheSession::Status MemcacheSession::process(std::string_view buf, size_t& p
     out += "ERROR\r\n";
     return Status::Done;
   }
-  ctx_.stats.total_commands.fetch_add(1, std::memory_order_relaxed);
+  bump(ctx_.stats.threads.local().commands);
   std::string cmd = to_lower(tok[0]);
   if (cmd == "auth") {
     pos = nl + 1;

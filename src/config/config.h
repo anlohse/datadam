@@ -24,6 +24,8 @@ struct Config {
   std::string bind = "0.0.0.0";
   uint16_t port = 6379;           // RESP (Redis protocol)
   uint16_t memcache_port = 11211; // memcache text protocol; 0 disables
+  // HTTP for monitoring (GET /metrics in Prometheus text, /health, /ready); 0 disables.
+  uint16_t metrics_port = 0;
   // TLS for the Redis protocol (0 disables). "port 0" then leaves only the TLS port.
   uint16_t tls_port = 0;
   std::string tls_cert_file;          // server certificate chain (PEM)

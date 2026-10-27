@@ -2,18 +2,22 @@
 
 #include <gtest/gtest.h>
 
+#include <cctype>
 #include <filesystem>
 #include <future>
 #include <thread>
 #include <random>
+#include <map>
 #include <set>
 
 #include "cache/object_cache.h"
 #include "db/database.h"
 #include "server/memcache_protocol.h"
+#include "server/metrics.h"
 #include "server/read_pool.h"
 #include "server/redis_commands.h"
 #include "storage/rocks_storage.h"
+#include "util/strings.h"
 
 using namespace datadam;
 namespace fs = std::filesystem;
@@ -234,6 +238,118 @@ TEST_F(AdminTest, ConfigSetAppliesAllOrNothing) {
   EXPECT_EQ(raw({"CONFIG", "SET", "log-level", "info"}), "+OK\r\n");
 }
 
+TEST_F(AdminTest, InfoCountsCommandsErrorsAndLookups) {
+  run({"SET", "k", "v"});
+  run({"GET", "k"});
+  run({"GET", "missing"});
+  run({"EXISTS", "k"});
+  EXPECT_TRUE(run({"INCR", "k"}).error);         // ran, failed
+  EXPECT_TRUE(run({"GET"}).error);               // refused: arity
+  EXPECT_TRUE(run({"NOSUCHCOMMAND"}).error);     // no command to count it under
+  EXPECT_TRUE(run({"WRONG", "k"}).error);
+  run({"MULTI"});
+  run({"INCR", "k"});
+  run({"EXEC"});  // its INCR fails; EXEC itself does not
+  std::string cmds = raw({"INFO", "commandstats"});
+  EXPECT_NE(cmds.find("cmdstat_get:calls=2,"), std::string::npos) << cmds;
+  EXPECT_NE(cmds.find("rejected_calls=1,failed_calls=0"), std::string::npos) << cmds;  // GET
+  EXPECT_NE(cmds.find("cmdstat_incr:calls=2,"), std::string::npos) << cmds;
+  EXPECT_NE(cmds.find("rejected_calls=0,failed_calls=2"), std::string::npos) << cmds;  // INCR
+  EXPECT_NE(cmds.find("cmdstat_exec:calls=1,"), std::string::npos) << cmds;
+  std::string exec_line = cmds.substr(cmds.find("cmdstat_exec:"));
+  EXPECT_TRUE(exec_line.substr(0, exec_line.find('\r')).ends_with("failed_calls=0")) << exec_line;
+  std::string errors = raw({"INFO", "errorstats"});
+  EXPECT_NE(errors.find("errorstat_ERR:count=5"), std::string::npos) << errors;  // 2 INCR, GET, 2 unknown
+  std::string stats = raw({"INFO", "stats"});
+  EXPECT_NE(stats.find("total_error_replies:5\r\n"), std::string::npos) << stats;
+  EXPECT_NE(stats.find("keyspace_hits:2\r\n"), std::string::npos) << stats;  // GET k, EXISTS k
+  EXPECT_NE(stats.find("keyspace_misses:1\r\n"), std::string::npos) << stats;
+  // Commands that ran: SET, GET x2, EXISTS, INCR x2, MULTI, EXEC, the INFOs.
+  EXPECT_EQ(stats_.total_commands(), 11u);
+  // As in Redis, the per-command lines only on request.
+  EXPECT_EQ(raw({"INFO"}).find("# Commandstats"), std::string::npos);
+  EXPECT_NE(raw({"INFO", "everything"}).find("# Commandstats"), std::string::npos);
+  EXPECT_NE(raw({"INFO", "memory"}).find("used_memory_rss:"), std::string::npos);
+}
+
+TEST_F(AdminTest, PrometheusTextIsWellFormed) {
+  run({"SET", "k", "v"});
+  run({"GET", "k"});
+  run({"INCR", "k"});
+  std::string text = render_prometheus(*ctx_);
+  std::set<std::string> typed;
+  std::map<std::string, std::string> buckets_seen;  // histogram -> last cumulative count
+  size_t samples = 0;
+  for (size_t pos = 0; pos < text.size();) {
+    size_t end = text.find('\n', pos);
+    ASSERT_NE(end, std::string::npos) << "the text ends with a newline";
+    std::string line = text.substr(pos, end - pos);
+    pos = end + 1;
+    if (line.starts_with("# TYPE ")) {
+      std::string name = line.substr(7, line.find(' ', 7) - 7);
+      EXPECT_TRUE(typed.insert(name).second) << "two TYPE lines for " << name;
+      continue;
+    }
+    if (line.starts_with("# HELP ")) continue;
+    ASSERT_FALSE(line.empty());
+    size_t name_end = line.find_first_of("{ ");
+    std::string name = line.substr(0, name_end);
+    for (char c : name) EXPECT_TRUE(std::isalnum(static_cast<unsigned char>(c)) || c == '_') << line;
+    std::string family = name;
+    for (std::string_view suffix : {"_bucket", "_sum", "_count"}) {
+      if (!typed.contains(family) && family.ends_with(suffix)) family.resize(family.size() - suffix.size());
+    }
+    EXPECT_TRUE(typed.contains(family)) << "no TYPE before " << line;
+    std::string value = line.substr(line.rfind(' ') + 1);
+    EXPECT_TRUE(value == "+Inf" || parse_double(value).has_value()) << line;
+    ++samples;
+  }
+  EXPECT_GT(samples, 50u);
+  EXPECT_NE(text.find("datadam_commands_total{cmd=\"get\"} 1\n"), std::string::npos);
+  EXPECT_NE(text.find("datadam_commands_failed_total{cmd=\"incr\"} 1\n"), std::string::npos);
+  EXPECT_NE(text.find("datadam_errors_total{code=\"ERR\"} 1\n"), std::string::npos);
+  EXPECT_NE(text.find("# TYPE datadam_keyspace_hits_total counter\n"), std::string::npos);
+  EXPECT_NE(text.find("# TYPE datadam_connected_clients gauge\n"), std::string::npos);
+  EXPECT_NE(text.find("# TYPE datadam_storage_write_seconds histogram\n"), std::string::npos);
+  EXPECT_NE(text.find("datadam_info{version=\""), std::string::npos);
+  EXPECT_EQ(text.find("datadam_process_id"), std::string::npos);
+
+  EXPECT_EQ(metrics_http(*ctx_, "GET /health HTTP/1.1").body, "OK\n");
+  EXPECT_EQ(metrics_http(*ctx_, "GET /ready HTTP/1.0").status, "200 OK");
+  EXPECT_EQ(metrics_http(*ctx_, "GET /metrics?x=1 HTTP/1.1").content_type, "text/plain; version=0.0.4; charset=utf-8");
+  EXPECT_TRUE(metrics_http(*ctx_, "HEAD /metrics HTTP/1.1").head_only);
+  EXPECT_EQ(metrics_http(*ctx_, "GET /nope HTTP/1.1").status, "404 Not Found");
+  EXPECT_EQ(metrics_http(*ctx_, "POST /metrics HTTP/1.1").status, "405 Method Not Allowed");
+  EXPECT_EQ(metrics_http(*ctx_, "hello").status, "400 Bad Request");
+}
+
+TEST(PerThreadTest, EachThreadCountsAloneAndTotalsAddUp) {
+  struct Block {
+    std::atomic<uint64_t> n{0};
+  };
+  PerThread<Block> counters;
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 4; ++t) {
+    threads.emplace_back([&] {
+      for (int i = 0; i < 10000; ++i) bump(counters.local().n);
+    });
+  }
+  for (auto& t : threads) t.join();
+  bump(counters.local().n, 5);
+  uint64_t total = 0;
+  size_t blocks = 0;
+  counters.for_each([&](const Block& b) {
+    total += b.n.load();
+    ++blocks;
+  });
+  EXPECT_EQ(total, 40005u);
+  EXPECT_EQ(blocks, 5u);
+  PerThread<Block> other;  // another set: its own block for this thread
+  bump(other.local().n);
+  EXPECT_EQ(counters.local().n.load(), 5u);
+  EXPECT_EQ(other.local().n.load(), 1u);
+}
+
 TEST(ConfigTest, IoThreadsAutoFollowsTheCpus) {
   EXPECT_EQ(auto_io_threads(2), 2u);
   EXPECT_EQ(auto_io_threads(8), 8u);
@@ -305,13 +421,13 @@ TEST_F(AdminTest, ReadOfAnUncachedKeyIsDeferred) {
   cache_->erase("cold");
   ClientState reader;
   reader.defer_blocked_reads = true;
-  uint64_t commands = stats_.total_commands.load();
+  uint64_t commands = stats_.total_commands();
   // The cached key is not answered alone: the whole command waits for "cold".
   EXPECT_EQ(raw({"MGET", "small", "cold"}, reader), "");
   EXPECT_TRUE(reader.retry_later);
   EXPECT_EQ(reader.load_key, "cold");
   EXPECT_EQ(db_->deferred_reads(), 1u);
-  EXPECT_EQ(stats_.total_commands.load(), commands);  // counted when it really runs
+  EXPECT_EQ(stats_.total_commands(), commands);  // counted when it really runs
   EXPECT_TRUE(db_->load_into_cache("cold"));
   reader.retry_later = false;
   std::string out = raw({"MGET", "small", "cold"}, reader);

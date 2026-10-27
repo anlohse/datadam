@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <span>
 #include <string>
@@ -20,18 +22,56 @@
 #include "server/scan_cursors.h"
 #include "server/scripting.h"
 #include "server/tls.h"
+#include "util/per_thread.h"
 
 namespace datadam {
+
+// What one thread counted: commands (INFO commandstats, errorstats), replies
+// and network bytes. Only that thread writes it (see PerThread).
+struct alignas(64) ThreadStats {
+  struct Command {
+    std::atomic<uint64_t> calls{0};     // ran (its reply may be an error)
+    std::atomic<uint64_t> usec{0};      // time spent running it
+    std::atomic<uint64_t> failed{0};    // ran and replied an error
+    std::atomic<uint64_t> rejected{0};  // refused before running (arity, ACL, READONLY...)
+  };
+  std::atomic<uint64_t> commands{0};  // Redis and memcache, run
+  std::atomic<uint64_t> error_replies{0};
+  std::atomic<uint64_t> net_input_bytes{0};
+  std::atomic<uint64_t> net_output_bytes{0};
+  std::array<Command, kMaxAclCommands> by_command;  // by CommandSpec::id
+  // Error replies by code (first word: ERR, WRONGTYPE...). Errors are rare:
+  // a map under a lock only this thread and readers take.
+  mutable std::mutex errors_mu;
+  std::map<std::string, uint64_t, std::less<>> errors;
+};
 
 struct ServerStats {
   std::atomic<uint64_t> connected_clients{0};
   std::atomic<uint64_t> total_connections{0};
-  std::atomic<uint64_t> total_commands{0};
+  PerThread<ThreadStats> threads;
+  // Rates over the last second, sampled by the server (0 without one).
+  std::atomic<uint64_t> instantaneous_ops{0};
+  std::atomic<uint64_t> instantaneous_input_bps{0};
+  std::atomic<uint64_t> instantaneous_output_bps{0};
   std::atomic<uint64_t> next_client_id{0};
   std::atomic<uint64_t> auth_failures{0};
   std::atomic<uint64_t> acl_denied{0};
   std::atomic<uint64_t> tls_connections{0};
   std::atomic<uint64_t> tls_handshake_failures{0};
+
+  // Sums over the threads.
+  uint64_t total_commands() const { return sum(&ThreadStats::commands); }
+  uint64_t total_error_replies() const { return sum(&ThreadStats::error_replies); }
+  uint64_t total_net_input_bytes() const { return sum(&ThreadStats::net_input_bytes); }
+  uint64_t total_net_output_bytes() const { return sum(&ThreadStats::net_output_bytes); }
+
+ private:
+  uint64_t sum(std::atomic<uint64_t> ThreadStats::*field) const {
+    uint64_t n = 0;
+    threads.for_each([&](const ThreadStats& t) { n += (t.*field).load(std::memory_order_relaxed); });
+    return n;
+  }
 };
 
 // What the protocol handlers share. The settings CONFIG SET can change live
@@ -192,5 +232,16 @@ void uncached_read_keys(ServerContext& ctx, const ClientState& client, Args args
 
 // Text of the INFO command; section is lower-case ("" = all).
 std::string build_info(ServerContext& ctx, std::string_view section);
+
+// What the threads counted per command, for the commands used, by name.
+struct CommandTotals {
+  std::string_view name;
+  uint64_t calls = 0, usec = 0, failed = 0, rejected = 0;
+};
+std::vector<CommandTotals> command_totals(const ServerStats& stats);
+// Error replies by code (ERR, WRONGTYPE...), by code.
+std::vector<std::pair<std::string, uint64_t>> error_totals(const ServerStats& stats);
+// The latency histograms of INFO latency, by name (microseconds).
+std::vector<std::pair<std::string_view, const LatencyHistogram*>> latency_histograms(ServerContext& ctx);
 
 }  // namespace datadam

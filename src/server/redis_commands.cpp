@@ -21,6 +21,7 @@
 #include "server/command.h"
 #include "server/read_pool.h"
 #include "util/clock.h"
+#include "util/process.h"
 #include "util/strings.h"
 
 namespace datadam {
@@ -1050,10 +1051,71 @@ bool rerunnable(const CommandSpec& spec) {
   return ids.test(spec.id);
 }
 
+// Counts one command into this thread's ThreadStats when it returns: run
+// (calls, time, failed), refused (rejected) or neither (queued in MULTI, or to
+// run again later), and its error replies. A command EXEC runs writes into
+// the same Reply: its errors are its own, not EXEC's.
+class CommandAccounting {
+ public:
+  CommandAccounting(ServerStats& stats, ClientState& client, Reply& reply)
+      : stats_(stats), client_(client), reply_(reply), errors_before_(reply.errors()), parent_(current_) {
+    current_ = this;
+  }
+  ~CommandAccounting() {
+    current_ = parent_;
+    if (client_.retry_later) return;  // counted when it runs again
+    uint64_t errors = reply_.errors() - errors_before_;
+    if (parent_ && &parent_->reply_ == &reply_) parent_->nested_errors_ += errors;
+    errors -= std::min(errors, nested_errors_);
+    ThreadStats& t = stats_.threads.local();
+    if (spec_ && ran_) {
+      ThreadStats::Command& c = t.by_command[spec_->id];
+      bump(t.commands);
+      bump(c.calls);
+      bump(c.usec, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                             std::chrono::steady_clock::now() - started_)
+                                             .count()));
+      if (errors > 0) bump(c.failed);
+    } else if (spec_ && errors > 0) {
+      bump(t.by_command[spec_->id].rejected);
+    }
+    if (errors > 0) {
+      bump(t.error_replies, errors);
+      std::lock_guard lock(t.errors_mu);
+      auto it = t.errors.find(reply_.last_error_code());
+      if (it == t.errors.end()) it = t.errors.emplace(std::string(reply_.last_error_code()), 0).first;
+      it->second += errors;
+    }
+  }
+  CommandAccounting(const CommandAccounting&) = delete;
+  CommandAccounting& operator=(const CommandAccounting&) = delete;
+
+  void known(const CommandSpec& spec) { spec_ = &spec; }
+  void running() {
+    ran_ = true;
+    started_ = std::chrono::steady_clock::now();
+  }
+  std::chrono::steady_clock::time_point started() const { return started_; }
+
+ private:
+  ServerStats& stats_;
+  ClientState& client_;
+  Reply& reply_;
+  uint64_t errors_before_;
+  uint64_t nested_errors_ = 0;
+  CommandAccounting* parent_;
+  const CommandSpec* spec_ = nullptr;
+  bool ran_ = false;
+  std::chrono::steady_clock::time_point started_;
+  static thread_local CommandAccounting* current_;
+};
+
+thread_local CommandAccounting* CommandAccounting::current_ = nullptr;
+
 }  // namespace
 
 void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, Reply& reply) {
-  ctx.stats.total_commands.fetch_add(1, std::memory_order_relaxed);
+  CommandAccounting accounting(ctx.stats, client, reply);
   std::string name = to_lower(args[0]);
   const auto& table = command_table();
   auto it = table.find(name);
@@ -1077,6 +1139,7 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
     return reply.error(msg);
   }
   const CommandSpec& spec = it->second;
+  accounting.known(spec);
   int argc = static_cast<int>(args.size());
   if ((spec.arity > 0 && argc != spec.arity) || (spec.arity < 0 && argc < -spec.arity)) {
     if (client.in_multi) client.multi_error = true;
@@ -1114,8 +1177,7 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
       (spec.categories & (kCatRead | kCatWrite | kCatScripting | kCatTransaction)) &&
       ctx.scripts.running_us() >= kScriptParkUs && !allowed_while_script_busy(name, args)) {
     if (auto done = ctx.scripts.wait_until_done()) {
-      ctx.stats.total_commands.fetch_sub(1, std::memory_order_relaxed);  // counted when it runs
-      client.retry_later = true;
+      client.retry_later = true;  // counted when it runs
       client.wait_for_script = true;
       client.key_waiter = std::move(done);
       return;
@@ -1134,8 +1196,7 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
     client.entry->last_ms.store(steady_time_ms(), std::memory_order_relaxed);
     client.entry->last_cmd.store(&it->first, std::memory_order_relaxed);
   }
-  bool timed = ctx.slowlog.enabled();
-  auto started = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+  accounting.running();
   Cmd cmd{ctx, client, args, reply};
   size_t mark = reply.mark();
   try {
@@ -1159,13 +1220,11 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
     reply.error(std::format("ERR internal error: {}", e.what()));
   }
   // A command that runs again later is counted when it really runs.
-  if (client.retry_later) {
-    ctx.stats.total_commands.fetch_sub(1, std::memory_order_relaxed);
-    return;
-  }
+  if (client.retry_later) return;
   client.block_deadline_ms = 0;  // a blocking command that answered is not blocked any more
-  if (timed) {
-    auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started);
+  if (ctx.slowlog.enabled()) {
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                                    accounting.started());
     if (ctx.slowlog.wants(us.count())) ctx.slowlog.add(args, us.count(), client.addr, client.name);
   }
   if (ctx.monitors.any()) ctx.monitors.feed(client.id, client.addr, args);
@@ -1232,9 +1291,52 @@ void uncached_read_keys(ServerContext& ctx, const ClientState& client, Args args
   });
 }
 
+std::vector<CommandTotals> command_totals(const ServerStats& stats) {
+  std::vector<CommandTotals> by_id(kMaxAclCommands);
+  stats.threads.for_each([&](const ThreadStats& t) {
+    for (size_t i = 0; i < kMaxAclCommands; ++i) {
+      const ThreadStats::Command& c = t.by_command[i];
+      by_id[i].calls += c.calls.load(std::memory_order_relaxed);
+      by_id[i].usec += c.usec.load(std::memory_order_relaxed);
+      by_id[i].failed += c.failed.load(std::memory_order_relaxed);
+      by_id[i].rejected += c.rejected.load(std::memory_order_relaxed);
+    }
+  });
+  std::vector<CommandTotals> out;
+  for (const auto& [name, spec] : command_table()) {
+    CommandTotals c = by_id[spec.id];
+    if (c.calls == 0 && c.rejected == 0) continue;
+    c.name = name;
+    out.push_back(c);
+  }
+  std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+  return out;
+}
+
+std::vector<std::pair<std::string, uint64_t>> error_totals(const ServerStats& stats) {
+  std::map<std::string, uint64_t, std::less<>> sum;
+  stats.threads.for_each([&](const ThreadStats& t) {
+    std::lock_guard lock(t.errors_mu);
+    for (const auto& [code, n] : t.errors) sum[code] += n;
+  });
+  return {sum.begin(), sum.end()};
+}
+
+std::vector<std::pair<std::string_view, const LatencyHistogram*>> latency_histograms(ServerContext& ctx) {
+  RocksStorage& st = ctx.db.storage();
+  std::vector<std::pair<std::string_view, const LatencyHistogram*>> out = {
+      {"storage_get_usec", &st.get_latency()},       {"storage_multiget_usec", &st.multi_get_latency()},
+      {"storage_write_usec", &st.write_latency()},   {"key_lock_wait_usec", &ctx.db.lock_waits()},
+      {"key_read_lock_wait_usec", &ctx.db.read_lock_waits()}, {"write_batch_hold_usec", &ctx.db.batch_hold()}};
+  if (ctx.read_pool) out.emplace_back("read_pool_load_usec", &ctx.read_pool->latency());
+  return out;
+}
+
 std::string build_info(ServerContext& ctx, std::string_view section) {
   bool all = section.empty() || section == "all" || section == "everything" || section == "default";
   auto want = [&](std::string_view s) { return all || section == s; };
+  // As in Redis, only on request: one line per command used.
+  auto want_extra = [&](std::string_view s) { return section == "all" || section == "everything" || section == s; };
   std::string out;
   int64_t uptime_s = (unix_time_ms() - ctx.start_time_ms) / 1000;
 
@@ -1256,14 +1358,31 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
   }
   if (want("stats")) {
     out += std::format(
-        "# Stats\r\ntotal_connections_received:{}\r\ntotal_commands_processed:{}\r\nauth_failures:{}\r\n"
+        "# Stats\r\ntotal_connections_received:{}\r\ntotal_commands_processed:{}\r\ninstantaneous_ops_per_sec:{}\r\n"
+        "total_net_input_bytes:{}\r\ntotal_net_output_bytes:{}\r\ninstantaneous_input_kbps:{:.2f}\r\n"
+        "instantaneous_output_kbps:{:.2f}\r\nkeyspace_hits:{}\r\nkeyspace_misses:{}\r\nevicted_keys:0\r\n"
+        "total_error_replies:{}\r\nauth_failures:{}\r\n"
         "acl_access_denied:{}\r\ntls_connections:{}\r\ntls_handshake_failures:{}\r\ndeferred_reads:{}\r\nmemory_reads:{}\r\n"
         "read_pool_loads:{}\r\nread_pool_batches:{}\r\nread_pool_joined:{}\r\nread_pool_queued:{}\r\n\r\n",
-        ctx.stats.total_connections.load(), ctx.stats.total_commands.load(), ctx.stats.auth_failures.load(),
+        ctx.stats.total_connections.load(), ctx.stats.total_commands(), ctx.stats.instantaneous_ops.load(),
+        ctx.stats.total_net_input_bytes(), ctx.stats.total_net_output_bytes(),
+        static_cast<double>(ctx.stats.instantaneous_input_bps.load()) / 1024,
+        static_cast<double>(ctx.stats.instantaneous_output_bps.load()) / 1024, ctx.db.keyspace_hits(),
+        ctx.db.keyspace_misses(), ctx.stats.total_error_replies(), ctx.stats.auth_failures.load(),
         ctx.stats.acl_denied.load(), ctx.stats.tls_connections.load(), ctx.stats.tls_handshake_failures.load(),
         ctx.db.deferred_reads(), ctx.db.memory_reads(), ctx.read_pool ? ctx.read_pool->loads() : 0,
         ctx.read_pool ? ctx.read_pool->batches() : 0, ctx.read_pool ? ctx.read_pool->joined() : 0,
         ctx.read_pool ? ctx.read_pool->queued() : 0);
+  }
+  if (want("memory")) {
+    // used_memory: what holds data (object cache, memtables, block cache);
+    // used_memory_rss: the whole process.
+    RocksStorage& st = ctx.db.storage();
+    CacheStats cs = ctx.db.cache().stats();
+    auto number = [&](const char* name) { return parse_uint64(st.property(name)).value_or(0); };
+    uint64_t used = cs.pages_in_use * cs.page_size + number("rocksdb.cur-size-all-mem-tables") +
+                    number("rocksdb.block-cache-usage");
+    out += std::format("# Memory\r\nused_memory:{}\r\nused_memory_rss:{}\r\n\r\n", used, process_rss_bytes());
   }
   if (want("cache") || want("memory")) {
     ObjectCache& cache = ctx.db.cache();
@@ -1315,12 +1434,22 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
       return std::format("{}:calls={},p50={},p99={},p99.9={},p99.99={},max={}\r\n", name, h.count(),
                          h.percentile(0.5), h.percentile(0.99), h.percentile(0.999), h.percentile(0.9999), h.max());
     };
-    RocksStorage& st = ctx.db.storage();
-    out += "# Latency\r\n" + line("storage_get_usec", st.get_latency()) +
-           line("storage_multiget_usec", st.multi_get_latency()) + line("storage_write_usec", st.write_latency()) + line("key_lock_wait_usec", ctx.db.lock_waits()) +
-           line("key_read_lock_wait_usec", ctx.db.read_lock_waits()) +
-           line("write_batch_hold_usec", ctx.db.batch_hold());
-    if (ctx.read_pool) out += line("read_pool_load_usec", ctx.read_pool->latency());
+    out += "# Latency\r\n";
+    for (const auto& [name, h] : latency_histograms(ctx)) out += line(name, *h);
+    out += "\r\n";
+  }
+  if (want_extra("commandstats")) {
+    out += "# Commandstats\r\n";
+    for (const CommandTotals& c : command_totals(ctx.stats)) {
+      out += std::format("cmdstat_{}:calls={},usec={},usec_per_call={:.2f},rejected_calls={},failed_calls={}\r\n", c.name,
+                         c.calls, c.usec, c.calls ? static_cast<double>(c.usec) / static_cast<double>(c.calls) : 0.0,
+                         c.rejected, c.failed);
+    }
+    out += "\r\n";
+  }
+  if (want("errorstats")) {
+    out += "# Errorstats\r\n";
+    for (const auto& [code, n] : error_totals(ctx.stats)) out += std::format("errorstat_{}:count={}\r\n", code, n);
     out += "\r\n";
   }
   if (want("replication")) out += ctx.repl.info(ctx.db.storage(), ctx.settings().replica_priority);

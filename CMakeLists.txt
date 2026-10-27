@@ -32,6 +32,7 @@ add_library(datadam_core STATIC
   src/util/strings.cpp
   src/util/log.cpp
   src/util/sha256.cpp
+  src/util/process.cpp
   src/config/config.cpp
   src/mem/size_classes.cpp
   src/mem/page_arena.cpp
@@ -73,6 +74,7 @@ add_library(datadam_core STATIC
   src/server/scripting.cpp
   src/server/pubsub.cpp
   src/server/admin.cpp
+  src/server/metrics.cpp
   src/server/cmd_admin.cpp
   src/server/memcache_protocol.cpp
   src/server/server.cpp

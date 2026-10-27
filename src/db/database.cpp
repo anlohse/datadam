@@ -1135,15 +1135,20 @@ void Database::erase_locked(std::string_view key) {
 
 std::optional<Record> Database::get(std::string_view key) {
   std::optional<Record> out;
-  if (cache_.lookup(key, [&](const RecordView& v) { out = Record::from(v); })) return out;
+  if (cache_.lookup(key, [&](const RecordView& v) { out = Record::from(v); })) {
+    count_lookup(true);
+    return out;
+  }
   KeyGuard lock = lock_for_read(key);
-  return load_locked(key);
+  out = load_locked(key);
+  count_lookup(out.has_value());
+  return out;
 }
 
 bool Database::exists(std::string_view key) {
-  if (cache_.lookup(key, [](const RecordView&) {}, false)) return true;
+  if (cache_.lookup(key, [](const RecordView&) {}, false)) return count_lookup(true);
   KeyGuard lock = lock_for_read(key);
-  return exists_locked(key);
+  return count_lookup(exists_locked(key));
 }
 
 void Database::put(std::string_view key, Record rec) {

@@ -17,12 +17,21 @@ class LatencyHistogram {
   void record(uint64_t us) {
     buckets_[bucket_of(us)].fetch_add(1, std::memory_order_relaxed);
     count_.fetch_add(1, std::memory_order_relaxed);
+    sum_.fetch_add(us, std::memory_order_relaxed);
     uint64_t m = max_.load(std::memory_order_relaxed);
     while (us > m && !max_.compare_exchange_weak(m, us, std::memory_order_relaxed)) {}
   }
 
   uint64_t count() const { return count_.load(std::memory_order_relaxed); }
   uint64_t max() const { return max_.load(std::memory_order_relaxed); }
+  uint64_t sum() const { return sum_.load(std::memory_order_relaxed); }
+
+  // Calls f(upper_bound_us, samples) for every bucket, smallest first; a
+  // bucket holds the samples above the previous bound, up to its own.
+  template <class F>
+  void for_each_bucket(F&& f) const {
+    for (size_t i = 0; i < kBuckets; ++i) f(upper_bound(i), buckets_[i].load(std::memory_order_relaxed));
+  }
 
   // The smallest bucket bound below which at least `p` (0..1) of the samples fall.
   uint64_t percentile(double p) const {
@@ -43,6 +52,7 @@ class LatencyHistogram {
   void reset() {
     for (auto& b : buckets_) b.store(0, std::memory_order_relaxed);
     count_.store(0, std::memory_order_relaxed);
+    sum_.store(0, std::memory_order_relaxed);
     max_.store(0, std::memory_order_relaxed);
   }
 
@@ -81,6 +91,7 @@ class LatencyHistogram {
 
   std::array<std::atomic<uint64_t>, kBuckets> buckets_{};
   std::atomic<uint64_t> count_{0};
+  std::atomic<uint64_t> sum_{0};  // next to count_: one more add on a line already written
   std::atomic<uint64_t> max_{0};
 };
 

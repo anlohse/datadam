@@ -308,6 +308,7 @@ class LiveOps : public ::testing::Test {
     db_->config.bind = "127.0.0.1";
     db_->config.io_threads = 2;
     db_->config.memcache_port = 0;
+    db_->config.metrics_port = 1;  // any: start(true) takes a free one
     db_->config.read_threads = 4;
     server_ = std::make_unique<Server>(*db_->ctx);
     server_->start(true);
@@ -329,6 +330,51 @@ class LiveOps : public ::testing::Test {
 };
 
 }  // namespace
+
+// One HTTP request to the metrics port; the whole response.
+std::string http(uint16_t port, const std::string& request) {
+  asio::io_context io;
+  tcp::socket s(io);
+  s.connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), port));
+  asio::write(s, asio::buffer(request));
+  std::string out;
+  asio::error_code ec;
+  char chunk[4096];
+  while (!ec) out.append(chunk, s.read_some(asio::buffer(chunk), ec));
+  return out;
+}
+
+TEST_F(LiveOps, MetricsPortServesPrometheusHealthAndReady) {
+  Client c(port());
+  c.text({"SET", "k", "v"});
+  c.text({"GET", "k"});
+  std::string r = http(server_->metrics_port(), "GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n");
+  ASSERT_TRUE(r.starts_with("HTTP/1.1 200 OK\r\n")) << r.substr(0, 200);
+  EXPECT_NE(r.find("Content-Type: text/plain; version=0.0.4"), std::string::npos);
+  size_t body = r.find("\r\n\r\n") + 4;
+  size_t length = r.find("Content-Length: ");
+  ASSERT_NE(length, std::string::npos);
+  EXPECT_EQ(std::stoul(r.substr(length + 16)), r.size() - body);
+  EXPECT_NE(r.find("datadam_commands_total{cmd=\"get\"} 1\n"), std::string::npos);
+  EXPECT_NE(r.find("datadam_connected_clients 1\n"), std::string::npos);
+  // The client's traffic is counted.
+  std::string stats = c.text({"INFO", "stats"});
+  EXPECT_EQ(stats.find("total_net_input_bytes:0\r\n"), std::string::npos) << stats;
+  EXPECT_EQ(stats.find("total_net_output_bytes:0\r\n"), std::string::npos) << stats;
+
+  EXPECT_TRUE(http(server_->metrics_port(), "GET /health HTTP/1.0\r\n\r\n").ends_with("\r\n\r\nOK\n"));
+  EXPECT_TRUE(http(server_->metrics_port(), "GET /ready HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 200 OK"));
+  std::string head = http(server_->metrics_port(), "HEAD /metrics HTTP/1.1\r\n\r\n");
+  EXPECT_TRUE(head.ends_with("\r\n\r\n")) << head;
+  EXPECT_TRUE(http(server_->metrics_port(), "GET /x HTTP/1.1\n\n").starts_with("HTTP/1.1 404"));
+  // Not HTTP: an answer, not a hang.
+  EXPECT_TRUE(http(server_->metrics_port(), "PING\r\n\r\n").starts_with("HTTP/1.1 400"));
+  // The Redis port still answers while a metrics client sends nothing.
+  asio::io_context io;
+  tcp::socket idle(io);
+  idle.connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), server_->metrics_port()));
+  EXPECT_EQ(c.text({"PING"}), "PONG");
+}
 
 TEST_F(LiveOps, ClientListAndKill) {
   Client a(port()), b(port());

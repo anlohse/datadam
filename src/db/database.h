@@ -29,6 +29,7 @@
 #include "storage/rocks_storage.h"
 #include "util/hash.h"
 #include "util/latency_histogram.h"
+#include "util/per_thread.h"
 
 namespace datadam {
 
@@ -271,12 +272,12 @@ class Database {
   // the cache shard lock, straight from pooled memory (no copy).
   template <class F>
   bool read(std::string_view key, F&& f) {
-    if (cache_.lookup(key, f)) return true;
+    if (cache_.lookup(key, f)) return count_lookup(true);
     KeyGuard lock = lock_for_read(key);
     auto rec = load_locked(key);
-    if (!rec) return false;
+    if (!rec) return count_lookup(false);
     f(rec->view());
-    return true;
+    return count_lookup(true);
   }
 
   std::optional<Record> get(std::string_view key);
@@ -372,6 +373,10 @@ class Database {
    private:
     bool previous_;
   };
+  // Keys read (read, get, exists) that were there / were not (INFO
+  // keyspace_hits / keyspace_misses).
+  uint64_t keyspace_hits() const { return lookups(&Lookups::hits); }
+  uint64_t keyspace_misses() const { return lookups(&Lookups::misses); }
   // Reads that threw WouldBlock.
   uint64_t deferred_reads() const { return deferred_reads_.load(std::memory_order_relaxed); }
   // Reads that missed the object cache but RocksDB answered from memory, on the I/O thread.
@@ -680,6 +685,21 @@ class Database {
   std::atomic<uint64_t> deferred_reads_{0};
   std::atomic<uint64_t> memory_reads_{0};
   LatencyHistogram batch_hold_;
+  struct alignas(64) Lookups {
+    std::atomic<uint64_t> hits{0};
+    std::atomic<uint64_t> misses{0};
+  };
+  PerThread<Lookups> lookups_;
+  bool count_lookup(bool hit) {
+    Lookups& l = lookups_.local();
+    bump(hit ? l.hits : l.misses);
+    return hit;
+  }
+  uint64_t lookups(std::atomic<uint64_t> Lookups::*field) const {
+    uint64_t n = 0;
+    lookups_.for_each([&](const Lookups& l) { n += (l.*field).load(std::memory_order_relaxed); });
+    return n;
+  }
 };
 
 }  // namespace datadam

@@ -16,19 +16,27 @@ namespace datadam {
 inline constexpr auto kUseAwaitable = asio::as_tuple(asio::use_awaitable);
 inline constexpr size_t kReadChunk = 16 * 1024;
 
-template <class Stream>
-asio::awaitable<bool> read_more(Stream& stream, std::string& in) {
+// Counts nothing; read_more and flush take a counter of bytes, called with
+// what they moved.
+struct NoByteCount {
+  void operator()(size_t) const {}
+};
+
+template <class Stream, class Count = NoByteCount>
+asio::awaitable<bool> read_more(Stream& stream, std::string& in, Count count = {}) {
   size_t old = in.size();
   in.resize(old + kReadChunk);
   auto [ec, n] = co_await stream.async_read_some(asio::buffer(in.data() + old, kReadChunk), kUseAwaitable);
   in.resize(old + n);
+  count(n);
   co_return !ec;
 }
 
-template <class Stream>
-asio::awaitable<bool> flush(Stream& stream, std::string& out) {
+template <class Stream, class Count = NoByteCount>
+asio::awaitable<bool> flush(Stream& stream, std::string& out, Count count = {}) {
   if (out.empty()) co_return true;
   auto [ec, n] = co_await asio::async_write(stream, asio::buffer(out), kUseAwaitable);
+  count(n);
   out.clear();
   co_return !ec;
 }

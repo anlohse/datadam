@@ -135,6 +135,7 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     return {};
   }
   if (key == "memcache-port") return set_number<uint16_t>(key, value, &memcache_port, 0, 65535);
+  if (key == "metrics-port") return set_number<uint16_t>(key, value, &metrics_port, 0, 65535);
   if (key == "io-threads") {
     if (to_lower(value) == "auto") {
       io_threads = 0;
@@ -330,6 +331,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-client-key-file", tls_client_key_file},
       {"replica-priority", std::to_string(replica_priority)},
       {"memcache-port", std::to_string(memcache_port)},
+      {"metrics-port", std::to_string(metrics_port)},
       {"io-threads", io_threads == 0 ? "auto" : std::to_string(io_threads)},
       {"read-threads", std::to_string(read_threads)},
       {"read-batch", std::to_string(read_batch)},

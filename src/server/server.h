@@ -40,9 +40,10 @@ class Server {
   uint16_t port() const { return ports_[0]; }
   uint16_t tls_port() const { return ports_[1]; }
   uint16_t memcache_port() const { return ports_[2]; }
+  uint16_t metrics_port() const { return ports_[3]; }
 
  private:
-  enum class Protocol { Redis = 0, RedisTls = 1, Memcache = 2 };
+  enum class Protocol { Redis = 0, RedisTls = 1, Memcache = 2, Metrics = 3 };
 
   asio::awaitable<void> accept_loop(asio::ip::tcp::acceptor acceptor, Protocol proto);
   // The io_context of the next connection (accept loops only).
@@ -50,6 +51,12 @@ class Server {
   asio::awaitable<void> redis_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> redis_tls_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> memcache_session(asio::ip::tcp::socket socket);
+  // metrics-port: GET /metrics, /health and /ready over HTTP/1.x, one request
+  // per connection, on the control context.
+  asio::awaitable<void> metrics_loop(asio::ip::tcp::acceptor acceptor);
+  asio::awaitable<void> http_session(asio::ip::tcp::socket socket);
+  // Every second: the instantaneous_* rates of INFO stats.
+  asio::awaitable<void> sample_rates();
   // The request loop of a Redis connection, over TCP or TLS.
   template <class Stream>
   asio::awaitable<void> serve_redis(Stream& stream, ClientState& client);
@@ -91,7 +98,7 @@ class Server {
   std::unique_ptr<ReadPool> read_pool_;
   std::mutex follow_mu_;
   std::unique_ptr<ReplicaLink> replica_link_;  // when this is a replica
-  uint16_t ports_[3] = {0, 0, 0};
+  uint16_t ports_[4] = {0, 0, 0, 0};
 };
 
 }  // namespace datadam

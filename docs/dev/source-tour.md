@@ -49,6 +49,8 @@ Small, dependency-free helpers.
 | [clock.h](../../src/util/clock.h) | `unix_time_ms()` (wall clock, used for TTLs) and `steady_time_ms()` (monotonic, used for cache bookkeeping and deadlines). |
 | [hash.h](../../src/util/hash.h) | `hash_bytes()`: a fast 64-bit non-cryptographic hash (8-byte blocks folded with the murmur3 finalizer, `mix64`). Used for cache shards and buckets, key lock stripes and the admission filter. |
 | [latency_histogram.h](../../src/util/latency_histogram.h) | `LatencyHistogram`: lock-free microsecond histogram (four buckets per power of two) and its RAII `Timer`. Feeds `INFO latency`. |
+| [per_thread.h](../../src/util/per_thread.h) | `PerThread<Block>`: counters kept per thread (each writes only its own block with `bump()`, a plain load and store), added up by readers. Used for `ThreadStats` (commands, errors, traffic) and the keyspace hits and misses. |
+| [process.h](../../src/util/process.h), [process.cpp](../../src/util/process.cpp) | `process_rss_bytes()`, for `INFO memory`. |
 | [log.h](../../src/util/log.h), [log.cpp](../../src/util/log.cpp) | `LogLevel`, `log_debug/info/warn/error` with `std::format` strings; one line per message to stderr. |
 | [sha256.h](../../src/util/sha256.h), [sha256.cpp](../../src/util/sha256.cpp) | `sha256_hex()`, for ACL passwords. |
 | [spin.h](../../src/util/spin.h) | `cpu_relax()` and `spin_try_lock()` (2000 `try_lock` attempts before giving up), used by the key locks. |
@@ -148,6 +150,7 @@ Protocols, commands and everything per connection.
 | [scripting.h](../../src/server/scripting.h), [scripting.cpp](../../src/server/scripting.cpp) | `ScriptEngine`: the LuaJIT state and sandbox, `redis.*` and `cjson`, reply conversion both ways, the script cache, function libraries (stored in the System CF), `SCRIPT KILL`. |
 | [cmd_script.cpp](../../src/server/cmd_script.cpp) | `script_commands()`: `EVAL`, `EVALSHA`, the `_RO` variants, `SCRIPT`, `FUNCTION`, `FCALL`; `allowed_while_script_busy`. |
 | [admin.h](../../src/server/admin.h), [admin.cpp](../../src/server/admin.cpp) | `Backups` (RocksDB checkpoints for `BACKUP`/`BGSAVE`, with retention), `SlowLog`, `loggable_args` (argument redaction), `ClientEntry`/`ClientRegistry` (what `CLIENT LIST`/`KILL` see) and `Monitors`. |
+| [metrics.h](../../src/server/metrics.h), [metrics.cpp](../../src/server/metrics.cpp) | `metrics-port`: `render_prometheus` (the `INFO` numbers, commandstats, errorstats and the latency histograms in the Prometheus text format) and `metrics_http` (`/metrics`, `/health`, `/ready`). `Server::http_session` serves them on the control context. |
 | [cmd_admin.cpp](../../src/server/cmd_admin.cpp) | `admin_commands()`: `SAVE`, `BGSAVE`, `BACKUP`, `LASTSAVE`, `SHUTDOWN`, `SLOWLOG`, `MONITOR`, `OBJECT`, `TOUCH`, `MEMORY`. |
 | [pubsub.h](../../src/server/pubsub.h), [pubsub.cpp](../../src/server/pubsub.cpp) | `Subscriber` (a subscribed connection's output queue) and `PubSub` (channels, patterns and shard channels to subscribers). |
 | [cmd_cdc.cpp](../../src/server/cmd_cdc.cpp) | `cdc_commands()`: `CDC.INFO`, `CDC.READ` (with `BLOCK`). |

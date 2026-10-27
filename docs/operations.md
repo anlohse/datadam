@@ -209,22 +209,31 @@ pool), `read_pool_loads`, `read_pool_batches`, `read_pool_joined` and
 
 ## Monitoring
 
-`INFO [section]` returns the sections below, in this order. Without an argument, or with `all`,
-`everything` or `default`, it returns all of them. `INFO memory` is answered with the `# Cache` section. An
-unknown section name returns an empty reply. Section names are case-insensitive.
+`INFO [section]` returns the sections below, in this order. Without an argument, or with `default`, it
+returns all of them but `commandstats`; `all` and `everything` add it, as in Redis. `INFO memory` returns the
+`# Memory` and `# Cache` sections. An unknown section name returns an empty reply. Section names are
+case-insensitive. The field names Redis also has mean the same, so tools written for Redis (`redis-cli`,
+RedisInsight, `redis_exporter`, the Datadog Redis check) read them; the same numbers are also served over
+HTTP for Prometheus (see [Metrics over HTTP](#metrics-over-http)).
 
 | Section | Content |
 |---|---|
 | `server` | Version, process, ports, uptime |
 | `clients` | Connected clients |
-| `stats` | Connections, commands, authentication, TLS, read pool counters |
-| `cache` (also `memory`) | Object cache settings and counters |
+| `stats` | Connections, commands, traffic, key lookups, errors, authentication, TLS, read pool counters |
+| `memory` | Memory holding data, and the process's resident memory; then the `cache` section |
+| `cache` | Object cache settings and counters |
 | `persistence` | Durability settings, group commit counters, RocksDB figures |
 | `latency` | Latency histograms |
+| `commandstats` | Calls, time and errors per command (only on request) |
+| `errorstats` | Error replies by error code |
 | `replication` | Role, link to the primary, connected replicas |
 | `keyspace` | Estimated number of keys |
 
 Counters are totals since startup. `CONFIG RESETSTAT` clears only the latency histograms.
+
+Counting costs the hot path little: each I/O thread adds to counters of its own (no lock, no atomic shared
+with another thread), and the totals are added up only when `INFO` or `/metrics` asks.
 
 ### Server
 
@@ -252,7 +261,13 @@ Counters are totals since startup. `CONFIG RESETSTAT` clears only the latency hi
 | Field | Meaning |
 |---|---|
 | `total_connections_received` | Connections accepted, every protocol |
-| `total_commands_processed` | Redis protocol commands executed (a deferred read counts once) |
+| `total_commands_processed` | Commands that ran, Redis and memcache (a deferred read counts once; a refused one does not, see `rejected_calls` in [Commandstats](#commandstats)) |
+| `instantaneous_ops_per_sec` | Commands run in the last second |
+| `total_net_input_bytes`, `total_net_output_bytes` | Bytes received from and sent to clients (Redis and memcache, not replication) |
+| `instantaneous_input_kbps`, `instantaneous_output_kbps` | The same over the last second, in KiB/s |
+| `keyspace_hits`, `keyspace_misses` | Keys read by read commands that were there / were not (writes are not counted) |
+| `evicted_keys` | Always `0`: datadam never drops keys to free memory (the cache only forgets copies) |
+| `total_error_replies` | Error replies sent, refused commands included |
 | `auth_failures` | Failed `AUTH`/`HELLO ... AUTH` and memcache `auth` attempts |
 | `acl_access_denied` | Commands or keys refused by ACL rules |
 | `tls_connections` | TLS handshakes completed |
@@ -263,6 +278,13 @@ Counters are totals since startup. `CONFIG RESETSTAT` clears only the latency hi
 | `read_pool_batches` | Disk reads made by the pool (one key, or a `MultiGet` batch) |
 | `read_pool_joined` | Requests that joined a load already under way (single flight) |
 | `read_pool_queued` | Keys waiting for a read thread right now |
+
+### Memory
+
+| Field | Meaning |
+|---|---|
+| `used_memory` | Memory holding data: the object cache's pages in use, the RocksDB memtables and the block cache |
+| `used_memory_rss` | The process's resident memory (working set on Windows) |
 
 ### Cache
 
@@ -338,6 +360,35 @@ above `max`).
 Clear the histograms with `CONFIG RESETSTAT` before a measurement, then read `INFO latency` after it.
 `bench/repro_tail.sh` does exactly that around a benchmark run.
 
+### Commandstats
+
+One line per command used since startup, as in Redis:
+
+```text
+cmdstat_get:calls=1200,usec=3400,usec_per_call=2.83,rejected_calls=1,failed_calls=0
+```
+
+| Field | Meaning |
+|---|---|
+| `calls` | Times it ran (its reply may be an error) |
+| `usec`, `usec_per_call` | Time spent running it, in microseconds, in total and per call |
+| `rejected_calls` | Times it was refused before running: wrong number of arguments, ACL, `BUSY`, `READONLY`, `LOADING`... |
+| `failed_calls` | Times it ran and replied an error (`WRONGTYPE`, a bad argument...) |
+
+Commands inside `MULTI`/`EXEC` and called by scripts count as themselves; `EXEC` and `EVAL` count their own
+time, which includes them. Subcommands are counted under their command (`client`, not `client|list`), and
+memcache commands are not listed. A command that does not exist has no line: its error is counted in
+`errorstats`.
+
+### Errorstats
+
+```text
+errorstat_ERR:count=3
+errorstat_WRONGTYPE:count=1
+```
+
+Error replies by code, the first word of the error. `total_error_replies` in `stats` is their sum.
+
 ### Replication
 
 On a primary:
@@ -382,6 +433,49 @@ The memcache `stats` command returns `pid`, `uptime`, `time`, `version`, `thread
 `curr_connections`, `total_connections`, `curr_items` (the key estimate), `limit_maxbytes`
 (`cache-max-memory`), `bytes` (cached payload bytes), `cache_items`, `get_hits`, `get_misses` and `evictions`
 (LRU, idle and age evictions of the cache).
+
+### Metrics over HTTP
+
+With `metrics-port` set (off by default), datadam also answers HTTP on that port, on the `bind` address:
+
+| Path | Answer |
+|---|---|
+| `GET /metrics` | The numbers of `INFO`, in the Prometheus text format (version 0.0.4) |
+| `GET /health` | `200 OK` while the process serves: a liveness probe |
+| `GET /ready` | `200 OK` when it can serve data; `503` while a replica loads the dataset from its primary: a readiness probe |
+
+`HEAD` works too. One request per connection; a request that does not arrive within 5 s is dropped. The
+requests run on the thread that accepts connections, never on the I/O threads, and are read when asked
+for: nothing is collected in the background.
+
+Prometheus, Grafana Alloy, VictoriaMetrics, the OpenTelemetry Collector (`prometheus` receiver), Netdata and
+Datadog's OpenMetrics check read it as it is, with no exporter:
+
+```yaml
+scrape_configs:
+  - job_name: datadam
+    static_configs:
+      - targets: ["datadam-1:9121", "datadam-2:9121"]
+```
+
+What `/metrics` has:
+
+- **Every number of `INFO`** (the default sections) as `datadam_<field>`. Fields that only grow are counters,
+  named with `_total`: `total_commands_processed` becomes `datadam_commands_processed_total`,
+  `keyspace_hits` becomes `datadam_keyspace_hits_total`; the others are gauges (`datadam_connected_clients`,
+  `datadam_used_memory_rss`, `datadam_rocksdb_pending_compaction_bytes`...).
+- **Per command** (from `commandstats`), with a `cmd` label: `datadam_commands_total`,
+  `datadam_commands_duration_seconds_total`, `datadam_commands_failed_total`, `datadam_commands_rejected_total`.
+  The average time of a command over five minutes is
+  `rate(datadam_commands_duration_seconds_total[5m]) / rate(datadam_commands_total[5m])`.
+- **Errors** (from `errorstats`), with a `code` label: `datadam_errors_total`.
+- **The latency histograms** of `INFO latency` as Prometheus histograms in seconds, with a bucket at each
+  power of two microseconds: `datadam_storage_get_seconds`, `datadam_key_lock_wait_seconds`... so
+  `histogram_quantile(0.99, rate(datadam_storage_get_seconds_bucket[5m]))` gives the p99 of a disk read.
+- `datadam_info{version, redis_version, role}` (always 1) and `datadam_db_keys{db="db0"}`.
+
+The port has no password and no TLS, as is usual for metrics: it shows counts and sizes, never keys or values,
+but it does show how busy the server is. Keep it on a private network, or set `bind` to an internal address.
 
 ### Other sources
 

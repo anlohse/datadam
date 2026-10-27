@@ -50,12 +50,18 @@ class Reply {
   void rewind(size_t mark) { out_.resize(mark); }
   // What has been written (Pub/Sub hands it to the connection's subscriber).
   std::string& buffer() { return out_; }
+  // Errors replied so far, and the code (first word) of the last one, for
+  // INFO errorstats.
+  uint64_t errors() const { return errors_; }
+  std::string_view last_error_code() const { return last_error_code_; }
 
  private:
   void header(char type, int64_t n);
 
   std::string& out_;
   int proto_;
+  uint64_t errors_ = 0;
+  std::string last_error_code_;
 };
 
 }  // namespace datadam

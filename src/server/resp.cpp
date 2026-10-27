@@ -1,5 +1,6 @@
 #include "server/resp.h"
 
+#include <algorithm>
 #include <charconv>
 #include <format>
 
@@ -106,6 +107,8 @@ void Reply::simple(std::string_view s) {
 }
 
 void Reply::error(std::string_view msg) {
+  ++errors_;
+  last_error_code_.assign(msg.substr(0, std::min(msg.find(' '), size_t{32})));
   out_.push_back('-');
   for (char c : msg) out_.push_back(c == '\r' || c == '\n' ? ' ' : c);
   out_.append("\r\n");

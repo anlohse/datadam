@@ -9,6 +9,7 @@
 
 #include "server/asio_util.h"
 #include "server/memcache_protocol.h"
+#include "server/metrics.h"
 #include "server/read_pool.h"
 #include "server/resp.h"
 #include "util/clock.h"
@@ -65,6 +66,17 @@ std::vector<std::unique_ptr<asio::io_context>> make_contexts(unsigned io_threads
   for (unsigned i = 0; i <= std::max(io_threads, 1u); ++i) out.push_back(std::make_unique<asio::io_context>(1));
   return out;
 }
+
+// Counts client traffic into the thread's INFO total_net_input_bytes and
+// total_net_output_bytes (read_more, flush).
+struct NetInput {
+  ServerStats* stats;
+  void operator()(size_t n) const { bump(stats->threads.local().net_input_bytes, n); }
+};
+struct NetOutput {
+  ServerStats* stats;
+  void operator()(size_t n) const { bump(stats->threads.local().net_output_bytes, n); }
+};
 
 // Reads more bytes into `in`; returns false when the peer is gone.
 // Waits, without holding the thread, for the read pool to load `key`;
@@ -128,11 +140,17 @@ void Server::start(bool ephemeral_ports) {
     acceptor.bind(ep);
     acceptor.listen(asio::socket_base::max_listen_connections);
     ports_[static_cast<int>(proto)] = acceptor.local_endpoint().port();
-    asio::co_spawn(io_, accept_loop(std::move(acceptor), proto), asio::detached);
+    if (proto == Protocol::Metrics) {
+      asio::co_spawn(io_, metrics_loop(std::move(acceptor)), asio::detached);
+    } else {
+      asio::co_spawn(io_, accept_loop(std::move(acceptor), proto), asio::detached);
+    }
   };
   if (ctx_.config.port != 0) listen(ctx_.config.port, Protocol::Redis);
   if (ctx_.config.tls_port != 0) listen(ctx_.config.tls_port, Protocol::RedisTls);
   if (ctx_.config.memcache_port != 0) listen(ctx_.config.memcache_port, Protocol::Memcache);
+  if (ctx_.config.metrics_port != 0) listen(ctx_.config.metrics_port, Protocol::Metrics);
+  asio::co_spawn(io_, sample_rates(), asio::detached);
 
   if (!ctx_.config.replicaof.empty()) {
     auto parts = split_ws(ctx_.config.replicaof);
@@ -336,6 +354,7 @@ asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto
       case Protocol::Redis: asio::co_spawn(strand, redis_session(std::move(socket)), asio::detached); break;
       case Protocol::RedisTls: asio::co_spawn(strand, redis_tls_session(std::move(socket)), asio::detached); break;
       case Protocol::Memcache: asio::co_spawn(strand, memcache_session(std::move(socket)), asio::detached); break;
+      case Protocol::Metrics: break;  // metrics_loop
     }
   }
 }
@@ -419,7 +438,7 @@ namespace {
 // the peer is gone; then closes the socket, so the request loop ends too.
 template <class Stream>
 asio::awaitable<void> pump_output(Stream& socket, std::shared_ptr<Subscriber> sub,
-                                  std::shared_ptr<OutputPump> pump) {
+                                  std::shared_ptr<OutputPump> pump, ServerStats& stats) {
   std::string buf;
   for (;;) {
     buf.clear();
@@ -431,6 +450,7 @@ asio::awaitable<void> pump_output(Stream& socket, std::shared_ptr<Subscriber> su
       continue;
     }
     auto [ec, n] = co_await asio::async_write(socket, asio::buffer(buf), kUseAwaitable);
+    NetOutput{&stats}(n);
     if (ec) {
       sub->close();
       break;
@@ -476,7 +496,7 @@ asio::awaitable<bool> Server::wait_for_keys(Stream& socket, std::string& in, std
       alive = false;  // closed (readable with nothing to read)
       break;
     }
-    if (!co_await read_more(socket, in)) {
+    if (!co_await read_more(socket, in, NetInput{&ctx_.stats})) {
       alive = false;
       break;
     }
@@ -531,7 +551,7 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
     client.can_block = true;
     ReadPool* pool = ctx_.read_pool;
     bool defer = pool != nullptr;  // for the next command
-    while (!client.close_after_reply && co_await read_more(socket, in)) {
+    while (!client.close_after_reply && co_await read_more(socket, in, NetInput{&ctx_.stats})) {
       size_t pos = 0;
       bool more = true;
       while (more) {
@@ -592,12 +612,12 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
             pump->signal = std::make_shared<asio::steady_timer>(ex);
             pump->done = std::make_shared<asio::steady_timer>(ex);
             client.subscriber->set_notify([s = pump->signal, ex] { asio::post(ex, [s] { s->cancel(); }); });
-            asio::co_spawn(ex, pump_output(socket, client.subscriber, pump), asio::detached);
+            asio::co_spawn(ex, pump_output(socket, client.subscriber, pump, ctx_.stats), asio::detached);
           }
           client.subscriber->push(out);
           out.clear();
           if (pump->finished) co_return;
-        } else if (!co_await flush(socket, out)) {
+        } else if (!co_await flush(socket, out, NetOutput{&ctx_.stats})) {
           co_return;
         }
         if (replicate) {
@@ -655,7 +675,7 @@ asio::awaitable<void> Server::memcache_session(tcp::socket socket) {
     MemcacheSession session(ctx_);
     std::string in, out;
     bool close = false;
-    while (!close && co_await read_more(socket, in)) {
+    while (!close && co_await read_more(socket, in, NetInput{&ctx_.stats})) {
       size_t pos = 0;
       bool more = true;
       while (more) {
@@ -676,13 +696,69 @@ asio::awaitable<void> Server::memcache_session(tcp::socket socket) {
           }
           batch.commit();
         }
-        if (!co_await flush(socket, out)) co_return;
+        if (!co_await flush(socket, out, NetOutput{&ctx_.stats})) co_return;
       }
       consume(in, pos);
     }
   } catch (const std::exception& e) {
     log_debug("memcache client error: {}", e.what());
   }
+}
+
+asio::awaitable<void> Server::sample_rates() {
+  asio::steady_timer timer(io_);
+  ServerStats& s = ctx_.stats;
+  uint64_t ops = s.total_commands(), in = s.total_net_input_bytes(), out = s.total_net_output_bytes();
+  auto last = std::chrono::steady_clock::now();
+  for (;;) {
+    timer.expires_after(std::chrono::seconds(1));
+    auto [ec] = co_await timer.async_wait(kUseAwaitable);
+    if (ec) co_return;
+    auto now = std::chrono::steady_clock::now();
+    double seconds = std::chrono::duration<double>(now - last).count();
+    last = now;
+    auto rate = [&](uint64_t& prev, uint64_t total) {
+      uint64_t delta = total - std::exchange(prev, total);
+      return static_cast<uint64_t>(static_cast<double>(delta) / std::max(seconds, 0.001));
+    };
+    s.instantaneous_ops.store(rate(ops, s.total_commands()), std::memory_order_relaxed);
+    s.instantaneous_input_bps.store(rate(in, s.total_net_input_bytes()), std::memory_order_relaxed);
+    s.instantaneous_output_bps.store(rate(out, s.total_net_output_bytes()), std::memory_order_relaxed);
+  }
+}
+
+asio::awaitable<void> Server::metrics_loop(tcp::acceptor acceptor) {
+  for (;;) {
+    auto [ec, socket] = co_await acceptor.async_accept(kUseAwaitable);
+    if (ec == asio::error::operation_aborted) co_return;
+    if (ec) {
+      log_warn("metrics: accept failed: {}", ec.message());
+      continue;
+    }
+    asio::co_spawn(io_, http_session(std::move(socket)), asio::detached);
+  }
+}
+
+asio::awaitable<void> Server::http_session(tcp::socket socket) {
+  using namespace asio::experimental::awaitable_operators;
+  // A request line and headers, in this long, in this much.
+  constexpr auto kTimeout = std::chrono::seconds(5);
+  constexpr size_t kMaxRequest = 8 * 1024;
+  std::string in;
+  asio::steady_timer timer(io_, kTimeout);
+  while (in.find("\r\n\r\n") == std::string::npos && in.find("\n\n") == std::string::npos) {
+    if (in.size() > kMaxRequest) co_return;
+    auto got = co_await (read_more(socket, in) || timer.async_wait(kUseAwaitable));
+    if (got.index() != 0 || !std::get<0>(got)) co_return;  // timed out, or gone
+  }
+  HttpResponse r = metrics_http(ctx_, std::string_view(in).substr(0, in.find_first_of("\r\n")));
+  std::string reply = std::format(
+      "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+      r.status, r.content_type, r.body.size());
+  if (!r.head_only) reply += r.body;
+  co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
+  asio::error_code ignored;
+  socket.shutdown(tcp::socket::shutdown_both, ignored);
 }
 
 }  // namespace datadam
