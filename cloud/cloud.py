@@ -178,7 +178,10 @@ LARGE_WORKLOADS = [  # name, memtier arguments, seconds x
     ("mixed-gaussian-p16", "--ratio=1:4 --key-pattern=G:G --pipeline=16", 1),
     ("write-uniform", "--ratio=1:0 --key-pattern=R:R", 2),
 ]
-LARGE_MEMTIER = "--threads=8 --clients=25 --data-size=1000 --random-data --distinct-client-seed"
+# --randomize: the per-client seeds are otherwise the same in every run, and a
+# run would replay the keys the one before it just read (on 2026-10-27 the
+# first 36 s of the mixed run came from datadam's cache, without the disk).
+LARGE_MEMTIER = "--threads=8 --clients=25 --data-size=1000 --random-data --distinct-client-seed --randomize"
 # Offered loads of the latency curve, below what the disk-bound runs reach.
 LARGE_RATES = [25_000, 50_000, 100_000]
 
