@@ -6,6 +6,7 @@
 run_id    = "memory"
 max_hours = 4
 nodes = {
-  server = { role = "server", instance_type = "i4i.2xlarge" }
+  # On demand: a Spot i4i.2xlarge was taken back seconds after launch on the first try.
+  server = { role = "server", instance_type = "i4i.2xlarge", spot = false }
   loader = { role = "loader", instance_type = "c7i.4xlarge" }
 }

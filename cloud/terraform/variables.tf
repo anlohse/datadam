@@ -31,13 +31,15 @@ variable "nodes" {
     The machines, by name. role: server (datadam, Redis or Kvrocks, started by the
     scenario), loader (memtier, redis-benchmark; runs the scenario), replica (a datadam
     replica of the node named in `follows`), sentinel (redis-sentinel watching `follows`).
-    az: index of the availability zone (0-2).
+    az: index of the availability zone (0-2). spot: overrides use_spot for this node
+    (a server measured for an hour is better on demand: Spot capacity can be taken back).
   EOT
   type = map(object({
     role          = string
     instance_type = string
     az            = optional(number, 0)
     follows       = optional(string, "")
+    spot          = optional(bool)
   }))
   default = {
     server = { role = "server", instance_type = "c7i.large" }

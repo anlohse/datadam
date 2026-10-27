@@ -31,6 +31,7 @@ locals {
   name  = "datadam-bench-${var.run_id}"
   azs   = slice(data.aws_availability_zones.available.names, 0, 3)
   names = sort(keys(var.nodes))
+  spot  = { for n, v in var.nodes : n => coalesce(v.spot, var.use_spot) }
   # Fixed private addresses, so a replica or a sentinel can be told its primary's
   # address before the primary exists: 10.42.<az>.<10 + position>.
   ips = { for i, n in local.names : n => cidrhost(aws_subnet.public[var.nodes[n].az].cidr_block, 10 + i) }
@@ -167,10 +168,10 @@ resource "aws_instance" "node" {
 
   # `shutdown` (from max_hours in cloud-init, or by hand) terminates the instance.
   # One-time Spot instances always do, and AWS refuses the attribute on them.
-  instance_initiated_shutdown_behavior = var.use_spot ? null : "terminate"
+  instance_initiated_shutdown_behavior = local.spot[each.key] ? null : "terminate"
 
   dynamic "instance_market_options" {
-    for_each = var.use_spot ? [1] : []
+    for_each = local.spot[each.key] ? [1] : []
     content {
       market_type = "spot"
       spot_options {
