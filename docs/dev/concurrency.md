@@ -60,7 +60,9 @@ Taking a stripe goes through two steps in `Database`:
 The stripes are not reentrant. A write batch remembers the stripes it holds in `PendingBatch::held_mask` (a
 `std::bitset<4096>`) and `held`, so a second command of the same pipeline on the same stripe does not lock it
 again. `KeyLocks::Multi` locks a set of stripes in ascending order (sorted, duplicates removed) and unlocks them in
-reverse; `lock_keys` and `lock_all` build one.
+reverse; `lock_keys` builds one. `lock_all` takes the world lock instead (and waits for any script still
+committing), not the 4096 stripe mutexes: ThreadSanitizer's deadlock detector tracks at most 4096 held locks and
+spun for hours on a `FLUSHALL`.
 
 ### The world lock
 
@@ -168,7 +170,7 @@ waiting (or reading the disk) while holding stripes:
 | `lock_key` | The stripe is busy (spinning failed) and the batch holds stripes: it commits, counts a conflict (`write_batch_conflicts`), then waits |
 | `lock_for_read` | Busy stripe while holding others: commit, then wait. Free stripe while holding others: commit right after taking it, so the batch's keys are free during the disk read. (Inside a transaction it calls `lock_key` instead, joining the batch.) |
 | `TxnRun` for `transact_many` | Always, before locking several stripes |
-| `Database::mset`, `rename`, `flush_all` | Always (`commit_active_batch`): they lock their keys (or all stripes) with `KeyLocks::Multi` and write their own RocksDB batch |
+| `Database::mset`, `rename`, `flush_all` | Always (`commit_active_batch`): they lock their keys (or the world) with `KeyLocks::Multi` and write their own RocksDB batch |
 | `Database::keys`, `scan_keys`, `approx_size` | Always: `KEYS`, `SCAN`, `DBSIZE` read RocksDB directly |
 | `Database::query_index`, `search`, `search_keys` | Always: index queries read RocksDB, and the client's own writes must be visible |
 | `cmd_save`, `cmd_bgsave` | Always, before `RocksStorage::flush` |
@@ -237,9 +239,9 @@ The rules that keep the cache from ever holding a value older than RocksDB:
 1. Every cache fill after a miss happens under the key's stripe (`lock_for_read` + `load_locked`, or
    `load_into_cache`, which looks in the cache again after taking the lock).
 2. Every write updates the cache under the same stripe, and a batch keeps it until the RocksDB write is done.
-3. Multi-key writers (`mset`, `rename`) and `flush_all` hold all their stripes across the RocksDB write and the
+3. Multi-key writers (`mset`, `rename`) and `flush_all` hold all their stripes (`flush_all` the world lock) across the RocksDB write and the
    cache update.
-4. A replicated batch (`Database::apply_replicated`) locks every key it touches (all stripes for a `FLUSHALL`),
+4. A replicated batch (`Database::apply_replicated`) locks every key it touches (the world lock for a `FLUSHALL`),
    writes, and erases those keys from the cache.
 
 ## The read pool

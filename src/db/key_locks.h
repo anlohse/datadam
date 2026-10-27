@@ -164,15 +164,27 @@ class KeyLocks {
     }
     ~Multi() {
       for (auto it = stripes_.rbegin(); it != stripes_.rend(); ++it) locks_.unlock(*it);
+      if (world_) locks_.unlock_world();
     }
     // Movable for `cond ? lock_all() : lock_keys(...)` (MSVC 2022 wants it there); a moved-from one unlocks nothing.
-    Multi(Multi&& o) noexcept : locks_(o.locks_), stripes_(std::move(o.stripes_)) { o.stripes_.clear(); }
+    Multi(Multi&& o) noexcept : locks_(o.locks_), stripes_(std::move(o.stripes_)), world_(o.world_) {
+      o.stripes_.clear();
+      o.world_ = false;
+    }
     Multi(const Multi&) = delete;
     Multi& operator=(const Multi&) = delete;
 
    private:
+    friend class KeyLocks;
+    struct World {};
+    explicit Multi(KeyLocks& locks, World) : locks_(locks), world_(true) {
+      locks_.lock_world();
+      locks_.wait_all_committed();
+    }
+
     KeyLocks& locks_;
     std::vector<size_t> stripes_;
+    bool world_ = false;
   };
 
   template <class Keys>
@@ -182,11 +194,11 @@ class KeyLocks {
     return Multi(*this, std::move(s));
   }
 
-  Multi lock_all() {
-    std::vector<size_t> s(kStripes);
-    for (size_t i = 0; i < kStripes; ++i) s[i] = i;
-    return Multi(*this, std::move(s));
-  }
+  // The whole keyspace (the world lock, and every committing script done),
+  // for a thread that holds no stripe. Not the kStripes stripe mutexes one by
+  // one: ThreadSanitizer's deadlock detector tracks at most 4096 held locks,
+  // and spun for hours on FLUSHALL.
+  Multi lock_all() { return Multi(*this, Multi::World{}); }
 
  private:
   static constexpr size_t kReaderSlots = 64;
