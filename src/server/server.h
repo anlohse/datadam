@@ -45,6 +45,8 @@ class Server {
   enum class Protocol { Redis = 0, RedisTls = 1, Memcache = 2 };
 
   asio::awaitable<void> accept_loop(asio::ip::tcp::acceptor acceptor, Protocol proto);
+  // The io_context of the next connection (accept loops only).
+  asio::io_context& connection_context();
   asio::awaitable<void> redis_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> redis_tls_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> memcache_session(asio::ip::tcp::socket socket);

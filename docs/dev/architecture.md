@@ -55,12 +55,12 @@ connection never run concurrently, and they all run on that thread. Other connec
 one suspends, which is why anything thread-local (the write batch, see [concurrency.md](concurrency.md)) must
 never span a `co_await`. A context per thread rather than one shared by all: with one, every completion went
 through a single scheduler lock and epoll, and 16 I/O threads did barely more than 8 (cloud phase 4, 2026-10-27).
-The price: a connection waits for whatever runs on its thread. While a script runs (`EVAL`, `FCALL`), the
-connections of its thread wait for its end, so `accept_loop` gives new connections to another thread: a client
-connecting to send `SCRIPT KILL` gets through. The accept loop picks the thread once the connection is there and
-creates the socket on that thread's `io_context`, since a socket completes its operations on its own context.
-The cost: a command that holds its thread for long (a big `KEYS`, a slow script) delays the other connections of
-that thread, not just one thread's worth of work.
+The price: a command that holds its thread for long (a big `KEYS`, a slow script) delays the other connections of
+that thread. While a script runs (`EVAL`, `FCALL`), `Server::connection_context` gives new connections to another
+thread, so a client connecting to send `SCRIPT KILL` gets through. The accept loop makes each socket on its
+connection's `io_context`, since a socket completes its operations on its own context; on Linux it picks the thread
+once the connection is there (it waits for the listener to be readable, then accepts), on Windows before (Asio
+cannot wait for a Windows listener to be readable), so there a script started meanwhile can still be in the way.
 
 ## Components and dependencies
 

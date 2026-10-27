@@ -287,20 +287,38 @@ std::string Server::follow(const std::string& host, uint16_t port) {
   return {};
 }
 
+asio::io_context& Server::connection_context() {
+  size_t n = contexts_.size() - 1;
+  size_t pick = next_context_++ % n;
+  if (n > 1 && pick < threads_.size() && ctx_.scripts.running() && threads_[pick] == ctx_.scripts.runner()) {
+    pick = next_context_++ % n;
+  }
+  return *contexts_[pick + 1];
+}
+
 asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto) {
-  // The context of a connection is chosen once it is there (a script may have
-  // started meanwhile), and its socket is made on it: a socket completes its
+  // The socket of a connection is made on its context: a socket completes its
   // operations on the context it belongs to, not on the handler's.
+#ifdef _WIN32
+  // Asio waits for a Windows socket to be readable with a zero-byte receive,
+  // which fails on a listener: the context is chosen before the connection
+  // comes, so a script may have started on it meanwhile.
+  for (;;) {
+    asio::io_context& io = connection_context();
+    auto [ec, accepted] = co_await acceptor.async_accept(io, kUseAwaitable);
+    if (ec == asio::error::operation_aborted) co_return;
+    if (ec) {
+      log_warn("accept failed: {}", ec.message());
+      continue;
+    }
+    tcp::socket socket(std::move(accepted));
+#else
+  // The context is chosen once the connection is there.
   acceptor.non_blocking(true);
   for (;;) {
     auto [ec] = co_await acceptor.async_wait(tcp::acceptor::wait_read, kUseAwaitable);
     if (ec == asio::error::operation_aborted) co_return;
-    size_t n = contexts_.size() - 1;
-    size_t pick = next_context_++ % n;
-    if (n > 1 && pick < threads_.size() && ctx_.scripts.running() && threads_[pick] == ctx_.scripts.runner()) {
-      pick = next_context_++ % n;
-    }
-    asio::io_context& io = *contexts_[pick + 1];
+    asio::io_context& io = connection_context();
     tcp::socket socket(io);
     if (!ec) acceptor.accept(socket, ec);
     if (ec == asio::error::would_block || ec == asio::error::try_again) continue;
@@ -308,6 +326,7 @@ asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto
       log_warn("accept failed: {}", ec.message());
       continue;
     }
+#endif
     asio::error_code ignored;
     socket.set_option(tcp::no_delay(true), ignored);
     // Each connection runs on its own strand: its operations never run
