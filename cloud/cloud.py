@@ -441,6 +441,10 @@ def scenario_soak(outs, hours, chunk_s, keys, main_rate, ttl_rate, collections_r
     the nodes and upload as they go; soak-status shows how far it is, soak-stop
     ends the sampling and collects."""
     wait_ready(outs)
+    # A run before this one (a pilot) left its files in the bucket; the nodes may not delete.
+    for node in ("server", "loader"):
+        sh(["aws", "s3", "rm", "--recursive", "--only-show-errors", "--region", outs["region"],
+            f"s3://{outs['bucket']}/{outs['run_id']}/{node}/soak/"])
     for node, command in (("server", f"{NODE}/soak.sh start {interval_s}"),
                           ("loader", f"{NODE}/soak_load.sh start {hours} {chunk_s} {keys} {main_rate} {ttl_rate} "
                                      f"{collections_rate}")):
