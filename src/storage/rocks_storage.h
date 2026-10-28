@@ -294,7 +294,8 @@ class RocksStorage {
   void wrote();  // after every write: wakes on_next_write waiters
   // An iterator over the WAL from the batch holding `from` (0: the oldest
   // kept), or null if nothing was written since; throws StorageError if `from`
-  // is older than what is kept.
+  // is older than the oldest kept file. A first batch past `from` (a gap) is
+  // for the reader to check: GetBatch moves the batch out, so it is read once.
   std::unique_ptr<rocksdb::TransactionLogIterator> wal_from(uint64_t from) const;
   // Calls fn for every batch from `from` on (see read_wal), until it returns false.
   void for_each_wal_batch(uint64_t from, const std::function<bool(uint64_t seq, rocksdb::WriteBatch& batch)>& fn) const;

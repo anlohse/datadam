@@ -33,6 +33,14 @@ void check(const rocksdb::Status& s, const char* what) {
 
 rocksdb::Slice slice(std::string_view v) { return {v.data(), v.size()}; }
 
+// The first batch after a seek to `from` starts after it: the batch holding
+// `from` is gone. (GetBatch moves the batch out: read it once, here or there.)
+void check_first_batch(uint64_t from, uint64_t first) {
+  if (from != 0 && first > from) {
+    throw StorageError(std::format("sequence {} is no longer in the kept WAL (the oldest is {})", from, first));
+  }
+}
+
 // After the last batch: the end of the WAL reads as "not found" or "sequence
 // not written yet", just no more batches.
 void check_wal_end(rocksdb::TransactionLogIterator& it) {
@@ -550,11 +558,6 @@ std::unique_ptr<rocksdb::TransactionLogIterator> RocksStorage::wal_from(uint64_t
   if (start > latest_sequence()) return nullptr;
   std::unique_ptr<rocksdb::TransactionLogIterator> it;
   check(db_->GetUpdatesSince(start, &it), "read wal");
-  if (from != 0 && it->Valid()) {
-    if (uint64_t first = it->GetBatch().sequence; first > from) {
-      throw StorageError(std::format("sequence {} is no longer in the kept WAL (the oldest is {})", from, first));
-    }
-  }
   return it;
 }
 
@@ -562,8 +565,9 @@ void RocksStorage::for_each_wal_batch(uint64_t from,
                                       const std::function<bool(uint64_t, rocksdb::WriteBatch&)>& fn) const {
   auto it = wal_from(from);
   if (!it) return;
-  for (; it->Valid(); it->Next()) {
+  for (bool first = true; it->Valid(); it->Next(), first = false) {
     rocksdb::BatchResult r = it->GetBatch();
+    if (first) check_first_batch(from, r.sequence);
     if (!fn(r.sequence, *r.writeBatchPtr)) return;
   }
   check_wal_end(*it);
@@ -579,11 +583,14 @@ size_t RocksStorage::WalReader::read(size_t max_bytes, std::vector<RawBatch>* ou
     it_->Next();                     // at the tail: reads what was written since
     if (!it_->Valid()) it_.reset();  // RocksDB went on to a new WAL file (TryAgain), or it failed: seek
   }
-  if (!it_) it_ = storage_.wal_from(next_);
+  bool sought = !it_;
+  uint64_t from = next_;
+  if (sought) it_ = storage_.wal_from(from);
   size_t n = 0, bytes = 0;
-  for (; it_ && it_->Valid(); it_->Next()) {
+  for (; it_ && it_->Valid(); it_->Next(), sought = false) {
     if (n > 0 && bytes >= max_bytes) return n;  // the next read starts with this batch
     rocksdb::BatchResult r = it_->GetBatch();
+    if (sought) check_first_batch(from, r.sequence);
     auto count = static_cast<uint64_t>(r.writeBatchPtr->Count());
     next_ = r.sequence + count;
     bytes += r.writeBatchPtr->GetDataSize();
