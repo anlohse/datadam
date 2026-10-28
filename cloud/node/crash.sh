@@ -83,6 +83,7 @@ case $cmd in
     minutes=60
     [ -n "$usec" ] && minutes=$(( (usec / 1000000 - $(date +%s)) / 60 ))
     shutdown -h +"$(( minutes > 1 ? minutes : 1 ))" 2>/dev/null
+    touch /run/datadam-ready  # set up at the first boot; /run does not outlive a reboot (cloud.py wait)
     start=$(ms)
     docker start bench-server >/dev/null
     echo "up again $((booted - $(cat "$state/reboot-ms"))) ms after the reboot;" \
