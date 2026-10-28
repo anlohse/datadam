@@ -11,6 +11,7 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py scale [--pilot]          phase 4: 4/8/16 vCPUs, datadam x Redis x Kvrocks, io-threads sweep
   python cloud/cloud.py scale-image <image>      phase 4 again, datadam only, from another image
   python cloud/cloud.py ha [--pilot]             phase 5: kill, restart, network cut, planned failover
+  python cloud/cloud.py crash [--pilot]          phase 6: kill -9 and hard reboots under writes, every key checked
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -371,6 +372,63 @@ def scenario_ha(outs, keys, value_bytes, write_s, fault_at_s, cut_s, workers):
     collect(outs)
 
 
+# ---- phase 6: crash
+
+def scenario_crash(outs, keys, value_bytes, write_s, fault_at_s, workers, pipeline, churn, cases):
+    """datadam on the server, `keys` of `value_bytes` loaded; then for each case
+    (kill or reboot, with an fsync policy) the loader writes numbered operations
+    (bench/crash_check.py) while the server is killed (kill -9) or hard-rebooted
+    (sysrq b: no sync, as a power cut), started again, and every acknowledged
+    write looked for. A kill must lose nothing whatever the fsync; a reboot
+    nothing with fsync always, at most about the last second with everysec.
+    At the end every case is checked again: later crashes must not lose what
+    earlier ones kept."""
+    wait_ready(outs)
+
+    def step(node, command):
+        code, out, _ = run_on(outs, node, command)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+        return out
+
+    def rebooted():
+        time.sleep(15)
+        for _ in range(60):  # until the node is back and has rebooted (exit 3: not yet)
+            code, _, _ = run_on(outs, "server", f"{NODE}/crash.sh rebooted")
+            if code == 0:
+                return
+            if code != 3:
+                sys.exit("stopped: the server did not come back from its reboot")
+            time.sleep(10)
+        sys.exit("stopped: the server did not reboot")
+
+    step("server", f"{NODE}/crash.sh start")
+    if keys:
+        step("loader", f"{NODE}/dataset.sh crash-preload {keys} {value_bytes}")
+    names = []
+    for i, (kind, fsync) in enumerate(cases, 1):
+        name = f"{i}-{kind}-{fsync}"
+        loss = kind == "reboot" and fsync != "always"  # everysec may lose about the last second
+        step("server", f"{NODE}/crash.sh fsync {fsync}")
+        writer = threading.Thread(
+            target=step, args=("loader", f"{NODE}/crash_load.sh write {name} {write_s} {workers} {pipeline} {churn}"))
+        writer.start()
+        time.sleep(fault_at_s)
+        if kind == "kill":
+            step("server", f"{NODE}/crash.sh kill")
+            step("server", f"{NODE}/crash.sh restart")
+        else:
+            step("server", f"{NODE}/crash.sh reboot")
+            rebooted()
+        writer.join()
+        step("loader", f"{NODE}/crash_load.sh verify {name}" + (" allow-loss" if loss else ""))
+        names.append((name, loss))
+    step("server", f"{NODE}/crash.sh fsync everysec")
+    for name, loss in names:
+        step("loader", f"{NODE}/crash_load.sh verify {name} final" + (" allow-loss" if loss else ""))
+    collect(outs)
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -480,6 +538,18 @@ def main():
             scenario_ha(outs, keys=200_000, value_bytes=1000, write_s=30, fault_at_s=10, cut_s=15, workers=8)
         else:
             scenario_ha(outs, keys=10_000_000, value_bytes=1000, write_s=90, fault_at_s=25, cut_s=30, workers=16)
+    elif cmd == "crash":
+        # python cloud/cloud.py crash [--pilot]: phase 6, kill -9 and hard reboots
+        # under writes, over a data set larger than the caches.
+        if "--pilot" in sys.argv:
+            scenario_crash(outs, keys=500_000, value_bytes=1000, write_s=60, fault_at_s=15, workers=8, pipeline=16,
+                           churn=2, cases=[("kill", "everysec"), ("reboot", "everysec"), ("reboot", "always")])
+        else:
+            scenario_crash(outs, keys=50_000_000, value_bytes=1000, write_s=300, fault_at_s=60, workers=16,
+                           pipeline=16, churn=4,
+                           cases=[("kill", "everysec"), ("kill", "everysec"), ("kill", "always"),
+                                  ("reboot", "everysec"), ("reboot", "everysec"), ("reboot", "always"),
+                                  ("reboot", "always")])
     elif cmd == "collect":
         collect(outs)
     else:

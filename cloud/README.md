@@ -136,7 +136,7 @@ machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-thr
 | 3. Larger than memory | `large.tfvars`: same machines, 200M keys × 1 KB incompressible (~200 GB, 3× the memory) | Load time, size on disk, uniform and gaussian reads, mixed, writes, write stalls, a latency curve; datadam × Kvrocks (`cloud.py large`) |
 | 4. Scaling with cores | `scale.tfvars`: i4i.xlarge, 2xlarge and 4xlarge at once, loader c7i.8xlarge | Throughput per core in memory, 800 connections, datadam × Redis × Kvrocks; datadam's `io-threads` swept (`cloud.py scale`) |
 | 5. High availability | `ha.tfvars`: primary + 2 replicas (i4i.xlarge) in 3 zones, 3 sentinels, a loader; 10 GB | Writes with `WAIT 1` (`bench/ha_check.py`) while the primary is killed, a replica restarts, the primary is cut off from the replicas and sentinels (not from the clients), and a planned `SENTINEL FAILOVER`: time without acknowledged writes, acknowledged writes lost (should be 0), full sync and catch-up times (`cloud.py ha`) |
-| 6. Crash | server + loader | `kill -9` and reboot under load, then every key checked |
+| 6. Crash | `crash.tfvars`: server i4i.2xlarge, loader c7i.4xlarge; 50 GB | Numbered writes of every type (`bench/crash_check.py`) while datadam is killed (`kill -9`) or the machine hard-rebooted (`sysrq b`, no sync, as a power cut), with `fsync everysec` and `always`; then every acknowledged write looked for: what survived must be a prefix of what was sent, collections must agree with their counts, a kill and an `fsync always` reboot must lose nothing; recovery times (`cloud.py crash`) |
 | 7. Soak | server + loader, 8–12 h | Memory growth, compaction debt, latency drift |
 
 The scenarios of phases 2 to 7 are added as each phase is prepared.
