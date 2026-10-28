@@ -12,6 +12,9 @@ results back from the bucket, and a check that nothing is left after
   python cloud/cloud.py scale-image <image>      phase 4 again, datadam only, from another image
   python cloud/cloud.py ha [--pilot]             phase 5: kill, restart, network cut, planned failover
   python cloud/cloud.py crash [--pilot]          phase 6: kill -9 and hard reboots under writes, every key checked
+  python cloud/cloud.py soak [--pilot]           phase 7: starts hours of steady load (it runs on the nodes)
+  python cloud/cloud.py soak-status              how far it is
+  python cloud/cloud.py soak-stop                stops the sampling and collects the results
   python cloud/cloud.py collect                  results of the run -> bench/results/cloud-<run>-<time>/
   python cloud/cloud.py leftovers [region]       anything of datadam-bench still in the account?
 """
@@ -429,6 +432,29 @@ def scenario_crash(outs, keys, value_bytes, write_s, fault_at_s, workers, pipeli
     collect(outs)
 
 
+# ---- phase 7: soak
+
+def scenario_soak(outs, hours, chunk_s, keys, main_rate, ttl_rate, collections_rate, interval_s):
+    """Starts the soak and returns: datadam on the server with a sampler of its
+    /metrics, and on the loader, after loading `keys` keys, `hours` of steady
+    load at fixed rates (cloud/node/soak_load.sh). Both run as systemd units on
+    the nodes and upload as they go; soak-status shows how far it is, soak-stop
+    ends the sampling and collects."""
+    wait_ready(outs)
+    for node, command in (("server", f"{NODE}/soak.sh start {interval_s}"),
+                          ("loader", f"{NODE}/soak_load.sh start {hours} {chunk_s} {keys} {main_rate} {ttl_rate} "
+                                     f"{collections_rate}")):
+        code, _, _ = run_on(outs, node, command)
+        if code != 0:
+            sys.exit(f"stopped: {command} failed on {node}")
+    print(f"soak running for {hours} h after the load; `cloud.py soak-status`, then `cloud.py soak-stop`")
+
+
+def soak_status(outs):
+    run_on(outs, "loader", f"{NODE}/soak_load.sh status")
+    run_on(outs, "server", "tail -1 /data/results/*/soak/disk.txt; systemctl is-active soak-sampler || true")
+
+
 def collect(outs):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = os.path.join(REPO, "bench", "results", f"cloud-{outs['run_id']}-{stamp}")
@@ -550,6 +576,21 @@ def main():
                            cases=[("kill", "everysec"), ("kill", "everysec"), ("kill", "always"),
                                   ("reboot", "everysec"), ("reboot", "everysec"), ("reboot", "always"),
                                   ("reboot", "always")])
+    elif cmd == "soak":
+        # python cloud/cloud.py soak [--pilot]: phase 7, hours of steady load at
+        # about half of what the server can do, over more data than its caches.
+        if "--pilot" in sys.argv:
+            scenario_soak(outs, hours=0.25, chunk_s=120, keys=1_000_000, main_rate=20_000, ttl_rate=1_000,
+                          collections_rate=2_000, interval_s=10)
+        else:
+            scenario_soak(outs, hours=10, chunk_s=600, keys=60_000_000, main_rate=60_000, ttl_rate=2_000,
+                          collections_rate=5_000, interval_s=60)
+    elif cmd == "soak-status":
+        soak_status(outs)
+    elif cmd == "soak-stop":
+        run_on(outs, "server", f"{NODE}/soak.sh stop")
+        run_on(outs, "loader", "systemctl stop soak-load 2>/dev/null; docker rm -f soak-coll >/dev/null 2>&1; true")
+        collect(outs)
     elif cmd == "collect":
         collect(outs)
     else:
