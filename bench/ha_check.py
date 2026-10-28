@@ -7,8 +7,9 @@
       sentinels again (it follows a failover). Meanwhile INFO replication of
       every data node is sampled every 250 ms.
   python ha_check.py verify <out-dir>
-      Reads back every acknowledged write, on every data node, and counts the
-      ones missing or different.
+      Waits until the replicas are in sync with the primary (none in a full
+      sync), then reads back every acknowledged write, on every data node, and
+      counts the ones missing or different.
 
 env: REDIS_PASSWORD; SENTINELS="ip:port,..." (master name: MASTER, default dd);
      NODES="name=ip,..." (the data nodes, port 6379); RUN (a key prefix);
@@ -260,6 +261,45 @@ def write(out, seconds, workers):
     print(json.dumps(summary))
 
 
+def replication(host, port):
+    c = Conn(host, port, timeout=2)
+    try:
+        text = c.call("INFO", "replication") or ""
+    finally:
+        c.close()
+    return dict(line.split(":", 1) for line in text.split("\r\n") if ":" in line)
+
+
+def wait_in_sync(nodes, out, limit_s=900):
+    """Waits until every reachable replica follows the primary Sentinel names,
+    with no sync under way and everything applied: one caught in a full sync (a
+    server that took writes the new primary never had) would read as missing
+    keys. Returns the nodes still not in sync at the limit."""
+    events = Events(os.path.join(out, "verify-events.jsonl"))
+    deadline = time.time() + limit_s
+    while True:
+        primary = Discovery(addr_list("SENTINELS"), events).primary()
+        try:
+            target = int(replication(*primary)["master_repl_offset"]) if primary else None
+        except (OSError, KeyError, ValueError):
+            target = None
+        lagging = []
+        for name, host, port in nodes:
+            if primary and host == primary[0]:
+                continue
+            try:
+                r = replication(host, port)
+            except OSError:
+                continue  # down: the check below says so
+            if not (target is not None and r.get("role") == "slave" and r.get("master_host") == primary[0] and
+                    r.get("master_link_status") == "up" and r.get("master_sync_in_progress") == "0" and
+                    int(r.get("slave_repl_offset", "0")) >= target):
+                lagging.append(name)
+        if not lagging or time.time() >= deadline:
+            return lagging
+        time.sleep(0.5)
+
+
 def verify(out):
     keys = []
     for name in sorted(os.listdir(out)):
@@ -267,6 +307,9 @@ def verify(out):
             with open(os.path.join(out, name)) as f:
                 keys += [line.split()[1] for line in f if line.strip()]
     result = {"acked": len(keys), "nodes": {}}
+    started = now_ms()
+    result["not_in_sync"] = wait_in_sync(addr_list("NODES"), out)
+    result["in_sync_after_ms"] = now_ms() - started
     for name, host, port in addr_list("NODES"):
         try:
             c = Conn(host, port, timeout=10)

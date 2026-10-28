@@ -141,6 +141,15 @@ machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-thr
 
 The scenarios of phases 2 to 7 are added as each phase is prepared.
 
+Phase 5 (2026-10-28, 10M keys × 1 KB, 16 writers with `WAIT 1`, image `sha-0bc808a`; results in
+`bench/results/cloud-ha-20261028-025342`): no acknowledged write lost when the primary is killed (5.4 s without
+acknowledged writes), when a replica restarts (none), or when the primary is cut off for 30 s (4.9 s). The other
+replica continues from the promoted one without a full sync. A planned `SENTINEL FAILOVER` lost 13k acknowledged
+writes and stopped acknowledgments for 58 s: Sentinel does not pause the old primary, so it and the other
+replica take writes the promoted one never gets, and both sync in full (see the limits in
+[docs/replication.md](../docs/replication.md#limits)). Before `0bc808a` every failover cost every replica a full sync
+(~58 s at 10 GB), and before `b80bd21` a `WAIT 1` took 25 ms.
+
 ## Costs
 
 Approximate on-demand prices in us-east-1 (check the AWS pricing calculator); Spot is usually 60–70% less:

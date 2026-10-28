@@ -384,10 +384,12 @@ def leftovers(region):
     found = []
     tagged = aws("resourcegroupstaggingapi", "get-resources", "--tag-filters", "Key=project,Values=datadam-bench",
                  region=region)
-    # Terminated instances and deleted volumes stay listed there for a while:
-    # those two are asked of EC2 directly below.
+    # Terminated instances, deleted volumes and deleted subnets stay listed
+    # there for a while: those are asked of EC2 directly below.
     found += [m["ResourceARN"] for m in tagged.get("ResourceTagMappingList", [])
-              if ":instance/" not in m["ResourceARN"] and ":volume/" not in m["ResourceARN"]]
+              if not any(kind in m["ResourceARN"] for kind in (":instance/", ":volume/", ":subnet/"))]
+    subnets = aws("ec2", "describe-subnets", "--filters", "Name=tag:project,Values=datadam-bench", region=region)
+    found += [f"subnet {s['SubnetId']}" for s in subnets.get("Subnets", [])]
     inst = aws("ec2", "describe-instances", "--filters", "Name=tag:project,Values=datadam-bench",
                "Name=instance-state-name,Values=pending,running,stopping,stopped", region=region)
     found += [f"instance {i['InstanceId']} ({i['State']['Name']})" for r in inst.get("Reservations", [])
