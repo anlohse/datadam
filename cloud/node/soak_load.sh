@@ -31,7 +31,10 @@ memtier() {  # name seconds [memtier arguments...]
 case $cmd in
   start)
     systemctl stop soak-load 2>/dev/null || true
+    docker rm -f soak-coll >/dev/null 2>&1 || true
+    # A run before this one (a pilot) leaves its chunks here and in the bucket.
     rm -rf "$dir"
+    aws s3 rm --recursive --only-show-errors --region "$REGION" "s3://$BUCKET/$RUN_ID/$NODE/soak/" || true
     systemd-run --unit=soak-load --collect /opt/datadam/cloud/node/soak_load.sh run "$@" >/dev/null
     echo "soak started: $*"
     ;;

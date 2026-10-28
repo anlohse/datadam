@@ -15,8 +15,12 @@ mkdir -p "$dir"
 case $cmd in
   start)
     interval=${1:-60}
-    /opt/datadam/cloud/node/server.sh start datadam --metrics-port 9121
     systemctl stop soak-sampler 2>/dev/null || true
+    # A run before this one (a pilot) leaves its samples here and in the bucket.
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    aws s3 rm --recursive --only-show-errors --region "$REGION" "s3://$BUCKET/$RUN_ID/$NODE/soak/" || true
+    /opt/datadam/cloud/node/server.sh start datadam --metrics-port 9121
     systemd-run --unit=soak-sampler --collect /opt/datadam/cloud/node/soak.sh sample "$interval" >/dev/null
     echo "sampling every $interval s"
     ;;

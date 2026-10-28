@@ -583,7 +583,8 @@ def main():
             scenario_soak(outs, hours=0.25, chunk_s=120, keys=1_000_000, main_rate=20_000, ttl_rate=1_000,
                           collections_rate=2_000, interval_s=10)
         else:
-            scenario_soak(outs, hours=10, chunk_s=600, keys=60_000_000, main_rate=60_000, ttl_rate=2_000,
+            # main at 60_000 was the server's ceiling (58k delivered, 85% CPU, compaction debt growing).
+            scenario_soak(outs, hours=10, chunk_s=600, keys=60_000_000, main_rate=30_000, ttl_rate=2_000,
                           collections_rate=5_000, interval_s=60)
     elif cmd == "soak-status":
         soak_status(outs)
