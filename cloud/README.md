@@ -150,6 +150,15 @@ replica take writes the promoted one never gets, and both sync in full (see the 
 [docs/replication.md](../docs/replication.md#limits)). Before `0bc808a` every failover cost every replica a full sync
 (~58 s at 10 GB), and before `b80bd21` a `WAIT 1` took 25 ms.
 
+Phase 6 (2026-10-28, image `sha-0bc808a`, 50M keys × 1 KB loaded, 16 writers with pipelines of 16 and 4 churn
+processes; results in `bench/results/cloud-crash-20261028-043423`): seven crashes, 8 to 14 million acknowledged
+operations each. Three `kill -9` (two with `fsync everysec`, one with `always`) and two hard reboots with
+`always` lost nothing. Two hard reboots with `everysec` lost the last 108 ms and 589 ms of acknowledged writes
+(19k and 137k operations), within the second `everysec` allows. Every survivor was a prefix of what was sent, no
+collection disagreed with its count, and a final check after all seven found every case as it was. datadam
+answered 8 to 13 s after its start with 53 to 71 GB on disk; the machine took about 20 s to reboot. `fsync
+always` took about 35% off the write throughput (130k–140k against 206k–216k operations/s).
+
 ## Costs
 
 Approximate on-demand prices in us-east-1 (check the AWS pricing calculator); Spot is usually 60–70% less:
