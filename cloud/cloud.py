@@ -331,9 +331,17 @@ def scenario_ha(outs, keys, value_bytes, write_s, fault_at_s, cut_s, workers):
         writer.join()
         step("loader", f"{NODE}/ha_load.sh verify {name}")
 
+    # Sentinels from a run before would re-point the fresh primary (and kill its
+    # clients doing so): they start again once the data nodes are set up.
+    sentinels = sorted(n for n, v in nodes.items() if v["role"] == "sentinel")
+    for s in sentinels:
+        step(s, "docker rm -f bench-sentinel >/dev/null 2>&1 || true")
     step("server", f"{NODE}/ha.sh primary")
     for r in replicas:
         step(r, f"{NODE}/ha.sh rejoin {nodes['server']['ip']}")
+    for s in sentinels:
+        step(s, f"{NODE}/sentinel.sh")
+    step("loader", f"{NODE}/ha_load.sh ready {len(replicas)}")
     step("loader", f"TARGET=server {NODE}/dataset.sh ha-preload {keys} {value_bytes}")
     for r in replicas:
         step(r, f"{NODE}/ha.sh synced {nodes['server']['ip']}")
