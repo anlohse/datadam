@@ -56,11 +56,12 @@ case $cmd in
     # What the next boot needs, on the root disk (not /data: syncing that would
     # defeat the power cut): the data device, the boot this is, and the time
     # of the safety shutdown, which a reboot cancels.
-    findmnt -no SOURCE /data > "$state/data-dev"
+    # By filesystem UUID: NVMe device names change from one boot to the next.
+    findmnt -no UUID /data > "$state/data-uuid"
     cat /proc/sys/kernel/random/boot_id > "$state/boot-id"
     sed -n 's/^USEC=//p' /run/systemd/shutdown/scheduled > "$state/shutdown-usec" 2>/dev/null || true
     ms > "$state/reboot-ms"
-    sync -f "$state/data-dev"
+    sync -f "$state/data-uuid"
     echo 1 > /proc/sys/kernel/sysrq
     echo "reboot at $(cat "$state/reboot-ms")"
     nohup sh -c 'sleep 1; echo b > /proc/sysrq-trigger' >/dev/null 2>&1 &
@@ -71,10 +72,11 @@ case $cmd in
       exit 3
     fi
     booted=$(ms)
-    findmnt /data >/dev/null || mount -o noatime "$(cat "$state/data-dev")" /data
+    uuid=$(cat "$state/data-uuid")
+    findmnt /data >/dev/null || mount -o noatime UUID="$uuid" /data
     # Without /data, datadam would start empty and every key would read as lost.
-    if [ "$(findmnt -no SOURCE /data)" != "$(cat "$state/data-dev")" ]; then
-      echo "/data is not mounted from $(cat "$state/data-dev")" >&2
+    if [ "$(findmnt -no UUID /data)" != "$uuid" ]; then
+      echo "/data is not the file system $uuid" >&2
       exit 1
     fi
     usec=$(cat "$state/shutdown-usec" 2>/dev/null)
