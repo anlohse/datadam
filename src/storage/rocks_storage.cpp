@@ -33,6 +33,12 @@ void check(const rocksdb::Status& s, const char* what) {
 
 rocksdb::Slice slice(std::string_view v) { return {v.data(), v.size()}; }
 
+// After the last batch: the end of the WAL reads as "not found" or "sequence
+// not written yet", just no more batches.
+void check_wal_end(rocksdb::TransactionLogIterator& it) {
+  if (auto st = it.status(); !st.ok() && !st.IsNotFound() && !st.IsTryAgain()) check(st, "read wal");
+}
+
 // Drops expired records while RocksDB compacts, so keys that are never read
 // again still free their disk space. The removal is written as a tombstone,
 // so older versions in lower levels cannot resurface.
@@ -534,28 +540,58 @@ class BatchDispatcher : public rocksdb::WriteBatch::Handler {
 
 }  // namespace
 
-void RocksStorage::for_each_wal_batch(uint64_t from,
-                                      const std::function<bool(uint64_t, rocksdb::WriteBatch&)>& fn) const {
+std::unique_ptr<rocksdb::TransactionLogIterator> RocksStorage::wal_from(uint64_t from) const {
   if (!wal_retained()) throw StorageError("the WAL is not kept (wal-retention 0)");
   uint64_t oldest = oldest_sequence();
   if (from != 0 && from < oldest) {
     throw StorageError(std::format("sequence {} is no longer in the kept WAL (the oldest is {})", from, oldest));
   }
   uint64_t start = from == 0 ? std::max<uint64_t>(oldest, 1) : from;
-  if (start > latest_sequence()) return;
+  if (start > latest_sequence()) return nullptr;
   std::unique_ptr<rocksdb::TransactionLogIterator> it;
   check(db_->GetUpdatesSince(start, &it), "read wal");
-  bool first = true;
+  if (from != 0 && it->Valid()) {
+    if (uint64_t first = it->GetBatch().sequence; first > from) {
+      throw StorageError(std::format("sequence {} is no longer in the kept WAL (the oldest is {})", from, first));
+    }
+  }
+  return it;
+}
+
+void RocksStorage::for_each_wal_batch(uint64_t from,
+                                      const std::function<bool(uint64_t, rocksdb::WriteBatch&)>& fn) const {
+  auto it = wal_from(from);
+  if (!it) return;
   for (; it->Valid(); it->Next()) {
     rocksdb::BatchResult r = it->GetBatch();
-    if (first && from != 0 && r.sequence > from) {
-      throw StorageError(std::format("sequence {} is no longer in the kept WAL (the oldest is {})", from, r.sequence));
-    }
-    first = false;
     if (!fn(r.sequence, *r.writeBatchPtr)) return;
   }
-  // The end of the WAL reads as "not found" or "sequence not written yet": just no more batches.
-  if (auto st = it->status(); !st.ok() && !st.IsNotFound() && !st.IsTryAgain()) check(st, "read wal");
+  check_wal_end(*it);
+}
+
+RocksStorage::WalReader::WalReader(const RocksStorage& storage, uint64_t from) : storage_(storage), next_(from) {}
+
+RocksStorage::WalReader::~WalReader() = default;
+
+size_t RocksStorage::WalReader::read(size_t max_bytes, std::vector<RawBatch>* out) {
+  if (next_ > storage_.latest_sequence()) return 0;
+  if (it_ && !it_->Valid()) {
+    it_->Next();                     // at the tail: reads what was written since
+    if (!it_->Valid()) it_.reset();  // RocksDB went on to a new WAL file (TryAgain), or it failed: seek
+  }
+  if (!it_) it_ = storage_.wal_from(next_);
+  size_t n = 0, bytes = 0;
+  for (; it_ && it_->Valid(); it_->Next()) {
+    if (n > 0 && bytes >= max_bytes) return n;  // the next read starts with this batch
+    rocksdb::BatchResult r = it_->GetBatch();
+    auto count = static_cast<uint64_t>(r.writeBatchPtr->Count());
+    next_ = r.sequence + count;
+    bytes += r.writeBatchPtr->GetDataSize();
+    out->push_back(RawBatch{r.sequence, count, r.writeBatchPtr->Data()});
+    ++n;
+  }
+  if (it_) check_wal_end(*it_);
+  return n;
 }
 
 void RocksStorage::read_wal(uint64_t from, WalVisitor& visitor) const {

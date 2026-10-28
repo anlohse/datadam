@@ -1,6 +1,7 @@
 // The change feed: CDC.INFO / CDC.READ over the retained WAL.
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <random>
 #include <thread>
@@ -255,6 +256,34 @@ TEST_F(CdcTest, KeptWalBeyondTheSizeLimitIsDropped) {
   auto c = changes({"CDC.READ", "0"});  // from the oldest still kept
   ASSERT_FALSE(c.empty());
   EXPECT_EQ(c.back(), "set c 3 0");
+}
+
+TEST_F(CdcTest, WalReaderGoesOnFromWhereItStopped) {
+  run({"SET", "a", "1"});
+  uint64_t from = storage_->latest_sequence() + 1;
+  RocksStorage::WalReader wal(*storage_, from);
+  std::vector<RocksStorage::RawBatch> got;
+  EXPECT_EQ(wal.read(1 << 20, &got), 0u);  // nothing written since
+  run({"SET", "b", "2"});
+  run({"SET", "c", "3"});
+  EXPECT_EQ(wal.read(1, &got), 1u);  // about one byte: a single batch
+  wal.read(1 << 20, &got);
+  run({"SET", "d", "4"});  // at the tail of the WAL file it reads
+  EXPECT_GT(wal.read(1 << 20, &got), 0u);
+  storage_->flush();  // RocksDB goes on to a new WAL file
+  run({"SET", "e", "5"});
+  EXPECT_GT(wal.read(1 << 20, &got), 0u);
+  EXPECT_EQ(wal.read(1 << 20, &got), 0u);
+  // The same batches a fresh read finds.
+  std::vector<RocksStorage::RawBatch> all;
+  storage_->read_wal_raw(from, SIZE_MAX, &all);
+  ASSERT_GE(all.size(), 4u);
+  ASSERT_EQ(got.size(), all.size());
+  for (size_t i = 0; i < got.size(); ++i) {
+    EXPECT_EQ(got[i].seq, all[i].seq);
+    EXPECT_EQ(got[i].data, all[i].data);
+  }
+  EXPECT_EQ(got.back().seq + got.back().count, storage_->latest_sequence() + 1);
 }
 
 TEST_F(CdcTest, JsonDocuments) {

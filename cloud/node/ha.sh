@@ -65,8 +65,12 @@ case $cmd in
   rejoin)
     primary=${1:?primary ip}
     start=$(ms)
-    run_datadam --replicaof "$primary 6379"
+    run_datadam
     wait_ping 127.0.0.1
+    # REPLICAOF, written to the config, not --replicaof: the command line would
+    # win over what Sentinel writes there, and a restart would follow a stale primary.
+    rcli 127.0.0.1 REPLICAOF "$primary" 6379 >/dev/null
+    rcli 127.0.0.1 CONFIG REWRITE >/dev/null
     "$0" synced "$primary" "$start"
     ;;
   synced)

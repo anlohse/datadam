@@ -3,8 +3,10 @@
 // Asio helpers shared by the client sessions and replication.
 
 #include <asio.hpp>
+#include <asio/experimental/awaitable_operators.hpp>
 
 #include <chrono>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <string>
@@ -57,6 +59,26 @@ inline asio::awaitable<void> wait_for_write(RocksStorage& storage, std::shared_p
   if (id == 0) co_return;  // already written
   co_await timer->async_wait(kUseAwaitable);
   storage.cancel_write_wait(id);
+}
+
+inline asio::awaitable<void> catching(asio::awaitable<void> a, std::exception_ptr& failed) {
+  try {
+    co_await std::move(a);
+  } catch (...) {
+    failed = std::current_exception();
+  }
+}
+
+// Runs a and b until either ends, ended or failed, and rethrows its failure.
+// Not a || b: operator|| waits for the first to end *without* an exception,
+// so one that throws leaves the other running, for good if it is waiting on
+// a connection that stays quiet.
+inline asio::awaitable<void> first_to_end(asio::awaitable<void> a, asio::awaitable<void> b) {
+  using namespace asio::experimental::awaitable_operators;
+  std::exception_ptr failed_a, failed_b;
+  auto first = co_await (catching(std::move(a), failed_a) || catching(std::move(b), failed_b));
+  // The other one was cancelled; whatever that threw does not matter.
+  if (std::exception_ptr& failed = first.index() == 0 ? failed_a : failed_b) std::rethrow_exception(failed);
 }
 
 inline void consume(std::string& in, size_t pos) {

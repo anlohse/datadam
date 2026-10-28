@@ -294,7 +294,10 @@ checks that the replica is promoted, takes writes, and that the old primary come
 
 Give every server that may become a primary a `wal-retention`, since the others then replicate from it, and
 use the same `masteruser`/`masterauth` everywhere. As with Redis, a write acknowledged by a primary that dies
-before streaming it is lost; use `WAIT` where that matters.
+before streaming it is lost; use `WAIT` where that matters. Set `replicaof` in the config file (or with
+`REPLICAOF` and `CONFIG REWRITE`), not on the command line: Sentinel re-points a replica by rewriting the
+config, and a `--replicaof` would win again at the next restart, so the server would follow a stale primary
+until Sentinel corrects it once more.
 
 ## Limits
 

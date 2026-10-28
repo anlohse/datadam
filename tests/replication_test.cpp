@@ -11,6 +11,7 @@
 
 #include "cache/object_cache.h"
 #include "db/database.h"
+#include "server/asio_util.h"
 #include "server/redis_commands.h"
 #include "server/server.h"
 #include "storage/rocks_storage.h"
@@ -337,6 +338,23 @@ TEST_F(ReplicationTest, WaitCountsReplicasThatHaveTheWrites) {
   EXPECT_EQ(primary_->info("master_failover_state"), "no-failover");
 }
 
+TEST_F(ReplicationTest, FollowingAgainKeepsTheLinkUp) {
+  // REPLICAOF while the link streams (what Sentinel sends): the old link must
+  // not report itself down once the new one is up.
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  start_replica();
+  ASSERT_TRUE(eventually([&] { return caught_up(); }));
+  Client r(replica_->port());
+  EXPECT_EQ(r.text({"REPLICAOF", "127.0.0.1", std::to_string(primary_->port())}), "OK");
+  ASSERT_TRUE(eventually([&] { return caught_up(); }));
+  EXPECT_EQ(replica_->info("partial_syncs"), "1");
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // past an acknowledgment tick
+  EXPECT_EQ(replica_->info("master_link_status"), "up");
+  EXPECT_EQ(p.text({"SET", "b", "2"}), "OK");
+  EXPECT_EQ(p.text({"WAIT", "1", "5000"}), "1");
+}
+
 TEST_F(ReplicationTest, FailoverSwapsTheRoles) {
   Client p(primary_->port());
   EXPECT_TRUE(p.run({"FAILOVER"}).error);  // no replica yet
@@ -391,4 +409,33 @@ TEST_F(ReplicationTest, FunctionsFollowThePrimary) {
   EXPECT_EQ(p.text({"FUNCTION", "DELETE", "one"}), "OK");
   ASSERT_TRUE(eventually([&] { return caught_up(); }));
   EXPECT_EQ(r.text({"FCALL_RO", "get1", "1", "k"}), "ERR Function not found");
+}
+
+TEST(FirstToEndTest, AFailureEndsTheOtherAndIsRethrown) {
+  // operator|| would keep waiting for the timer: an hour.
+  asio::io_context io;
+  std::string error;
+  auto fails = []() -> asio::awaitable<void> {
+    asio::steady_timer t(co_await asio::this_coro::executor, std::chrono::milliseconds(10));
+    co_await t.async_wait(kUseAwaitable);
+    throw std::runtime_error("the primary closed the connection");
+  };
+  auto waits = []() -> asio::awaitable<void> {
+    asio::steady_timer t(co_await asio::this_coro::executor, std::chrono::hours(1));
+    co_await t.async_wait(kUseAwaitable);
+  };
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        try {
+          co_await first_to_end(fails(), waits());
+        } catch (const std::exception& e) {
+          error = e.what();
+        }
+      },
+      asio::detached);
+  auto start = std::chrono::steady_clock::now();
+  io.run();
+  EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(10));
+  EXPECT_EQ(error, "the primary closed the connection");
 }

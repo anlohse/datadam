@@ -22,6 +22,7 @@ class DB;
 class ColumnFamilyHandle;
 class Iterator;
 class Snapshot;
+class TransactionLogIterator;
 class WriteBatch;
 }  // namespace rocksdb
 
@@ -242,6 +243,23 @@ class RocksStorage {
     std::string data;    // a rocksdb::WriteBatch, see decode_batch
   };
   size_t read_wal_raw(uint64_t from, size_t max_bytes, std::vector<RawBatch>* out) const;
+  // read_wal_raw that keeps its place (a replica's stream): finding a sequence
+  // reads the WAL file it is in from the start, so each read goes on from the
+  // last instead, at the tail of the live WAL file too, and seeks again only
+  // when RocksDB moves on to a new file. One reader per stream, one thread at a time.
+  class WalReader {
+   public:
+    WalReader(const RocksStorage& storage, uint64_t from);
+    ~WalReader();
+    // The batches after the last read, until about max_bytes were read; throws
+    // StorageError if they are no longer kept. Returns the number added.
+    size_t read(size_t max_bytes, std::vector<RawBatch>* out);
+
+   private:
+    const RocksStorage& storage_;
+    uint64_t next_;
+    std::unique_ptr<rocksdb::TransactionLogIterator> it_;  // null: seek next_ at the next read
+  };
   // Column family ids as they appear in this database's batches, by Cf.
   using CfIds = std::array<uint32_t, 4>;  // meta, data, index, system
   CfIds cf_ids() const;
@@ -274,6 +292,10 @@ class RocksStorage {
 
   bool skip_writes() const { return opts_.write_path == WritePath::Memory; }
   void wrote();  // after every write: wakes on_next_write waiters
+  // An iterator over the WAL from the batch holding `from` (0: the oldest
+  // kept), or null if nothing was written since; throws StorageError if `from`
+  // is older than what is kept.
+  std::unique_ptr<rocksdb::TransactionLogIterator> wal_from(uint64_t from) const;
   // Calls fn for every batch from `from` on (see read_wal), until it returns false.
   void for_each_wal_batch(uint64_t from, const std::function<bool(uint64_t seq, rocksdb::WriteBatch& batch)>& fn) const;
   Cf cf_of(uint32_t column_family_id) const;

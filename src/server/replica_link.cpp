@@ -275,7 +275,7 @@ asio::awaitable<void> sync_with(std::shared_ptr<ReplicaLink::Shared> sh, Stream&
     ctx.repl.set_link("connected");
   }
   ctx.repl.touched_primary();
-  co_await (read_stream(s, full_sync_next) || send_acks(s));
+  co_await first_to_end(read_stream(s, full_sync_next), send_acks(s));
 }
 
 asio::awaitable<void> connect_and_sync(std::shared_ptr<ReplicaLink::Shared> sh) {
@@ -333,8 +333,8 @@ asio::awaitable<void> run(std::shared_ptr<ReplicaLink::Shared> sh) {
     } catch (const std::exception& e) {
       if (!sh->stopped) log_warn("replication: {}", e.what());
     }
+    if (sh->stopped) break;  // its successor (if any) speaks for the link now
     sh->ctx.repl.set_link("down");
-    if (sh->stopped) break;
     pause.expires_after(kReconnectDelay);
     sh->timer = &pause;
     co_await pause.async_wait(kUseAwaitable);
@@ -367,12 +367,13 @@ namespace {
 template <class Stream>
 asio::awaitable<void> stream_wal(ServerContext& ctx, Stream& stream, uint64_t replica, uint64_t next) {
   RocksStorage& st = ctx.db.storage();
+  RocksStorage::WalReader wal(st, next);
   std::shared_ptr<asio::steady_timer> timer;
   int64_t last_sent = steady_time_ms();
   std::string out;
   for (;;) {
     std::vector<RocksStorage::RawBatch> raw;
-    st.read_wal_raw(next, kReplBatchBytes, &raw);  // throws if the replica fell behind the kept WAL
+    wal.read(kReplBatchBytes, &raw);  // throws if the replica fell behind the kept WAL
     if (raw.empty()) {
       // FAILOVER: everything up to the hand-over point is sent; tell the replica.
       if (auto at = ctx.repl.take_failover(replica, next)) {
@@ -470,7 +471,7 @@ asio::awaitable<void> serve_replica(ServerContext& ctx, Stream& stream, ClientSt
     }
     if (!co_await flush(stream, out)) co_return;
     ctx.repl.replica_state(replica, "online");
-    co_await (stream_wal(ctx, stream, replica, next) || read_acks(ctx, stream, replica, std::move(in)));
+    co_await first_to_end(stream_wal(ctx, stream, replica, next), read_acks(ctx, stream, replica, std::move(in)));
   } catch (const std::exception& e) {
     log_warn("replication: replica {}: {}", client.addr, e.what());
   }

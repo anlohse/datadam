@@ -31,7 +31,7 @@ primary and replica sides. User-facing behavior is in [change-feed.md](../change
                                              │
               ┌──────────────────────────────┼─────────────────────────────┐
               ▼                              ▼                             ▼
-   read_wal + WalVisitor           read_wal_raw (raw batches)      on_next_write (wake-ups)
+   read_wal + WalVisitor           WalReader (raw batches)         on_next_write (wake-ups)
    change_feed.cpp: Decoder        replica_link.cpp: stream_wal    asio_util.h: wait_for_write
    CDC.READ                        REPLSYNC stream                 CDC.READ BLOCK, stream_wal
 ```
@@ -76,9 +76,11 @@ All in [`rocks_storage.h`](../../src/storage/rocks_storage.h) /
 | `latest_sequence()` | `DB::GetLatestSequenceNumber()`: the sequence of the last write (0: none yet) |
 | `oldest_sequence()` | `StartSequence()` of the first file from `GetSortedWalFiles` (live and archived); `latest_sequence() + 1` if there are no files or the call fails |
 | `wal_bytes()` | total size of all WAL files, live and archived (`CDC.INFO wal_bytes`) |
+| `wal_from(from)` | private; the checks and the seek below, as a `TransactionLogIterator` (null if nothing was written since) |
 | `for_each_wal_batch(from, fn)` | private; the iteration both readers share (below) |
 | `read_wal(from, WalVisitor&)` | decodes every batch from `from` and hands its entries to the visitor |
 | `read_wal_raw(from, max_bytes, &out)` | whole undecoded batches as `RawBatch{seq, count, data}` until about `max_bytes` were collected (always at least one) |
+| `WalReader(storage, from)`, `read(max_bytes, &out)` | the same, keeping its place between reads (below) |
 | `cf_ids()` | this database's column family ids, as `CfIds` (`meta, data, index, system`) |
 | `decode_batch(data, ids, visitor)` | decodes a batch written by a database whose column family ids are `ids` (no `begin`/`end` calls) |
 | `on_next_write(after_seq, fn)` | registers `fn` to run once after the next write, or returns 0 (and never calls `fn`) if `latest_sequence() > after_seq` already |
@@ -94,6 +96,13 @@ All in [`rocks_storage.h`](../../src/storage/rocks_storage.h) /
   holding `from` is gone), it throws the same "no longer in the kept WAL" error;
 - calls `fn(seq, batch)` until it returns false. A final iterator status of `NotFound` or `TryAgain` is the
   normal end of the WAL; any other error throws.
+
+Seeking is not cheap: `GetUpdatesSince` lists the WAL files (`GetSortedWalFiles`, which reads the start of
+each) and reads the file holding `from` from its beginning. A replica's stream would pay that for every batch
+(with 200 MB of WAL, `SET` + `WAIT 1` took 9 ms instead of 0.25), so `stream_wal` reads through a `WalReader`,
+which keeps its iterator: at the end of the WAL a later `Next()` reads what was written since (RocksDB's log
+reader re-checks the tail), and only when that says `TryAgain` (RocksDB went on to a new WAL file) or fails does
+the reader seek again with `wal_from`, which also re-checks that the WAL is still kept.
 
 `WalVisitor` is the decoding interface: `begin(seq, count)` (false stops before the batch), `put`, `del`,
 `delete_range` (with the `Cf` already resolved), `log_data(blob)` and `end()`. `BatchDispatcher` adapts it to
@@ -358,12 +367,14 @@ replica                                                 primary
    `meta`, `data`, `index` and `System` at that snapshot (`fill_cache = false`), skipping `System` keys that start
    with `repl:`. Puts accumulate in a `RocksStorage::Batch`, sent as `snap` whenever it reaches `kReplBatchBytes`
    and at the end of each column family; `snapend` closes the snapshot.
-4. Mark the replica `online` and run `stream_wal(next) || read_acks(...)` (asio awaitable operators: whichever
-   ends first cancels the other).
+4. Mark the replica `online` and run `first_to_end(stream_wal(next), read_acks(...))`: whichever ends first,
+   returning or throwing, cancels the other, and its exception is rethrown. Not `operator||`, which waits for
+   the first to end *without* an exception: a `stream_wal` that threw would leave `read_acks` reading the
+   replica's acknowledgments for good, and the replica would never sync again.
 
 `stream_wal` loops:
 
-- `read_wal_raw(next, kReplBatchBytes, &raw)`. It throws when the replica fell behind the kept WAL; the
+- `WalReader::read(kReplBatchBytes, &raw)`. It throws when the replica fell behind the kept WAL; the
   exception ends `serve_replica` (logged), the connection closes, and the replica's next `REPLSYNC` gets a full
   sync because its offset is now older than `oldest_sequence()`.
 - With batches: append one `wal` message per batch, advance `next`, flush.
@@ -384,7 +395,7 @@ timer, which `stop()` closes and cancels on the strand.
            ├─ +FULLSYNC ─▶ set_link("sync"), syncing, clear ─┐  │
            ├─ +CONTINUE ─▶ set_link("connected") ────────────┤  │
            │                                                 ▼  │
-           │                        read_stream || send_acks    │
+           │              first_to_end(read_stream, send_acks)  │
            │                        (snapend ─▶ "connected")    │
            │                                                    │
    any error, close, or 10 s without data ─▶ set_link("down") ─▶ wait 1 s
@@ -398,7 +409,8 @@ timer, which `stop()` closes and cancels on the strand.
 | `kAckInterval` | 1 s | `REPLCONF ACK` period |
 
 `run()` loops `connect_and_sync` until stopped; every exception is logged as a warning and followed by the
-reconnect delay. `read_stream` parses messages with `RespParser` and hands each to `handle()`:
+reconnect delay. A stopped link leaves the link state alone: `REPLICAOF` (what Sentinel sends) stops it and
+starts the next one at once, and its late `down` would otherwise land after the new link's `connected`. `read_stream` parses messages with `RespParser` and hands each to `handle()`:
 
 - `wal next batch`: `db.apply_replicated(batch, ids, {{"repl:offset", be64(next)}})`, then `offset = next`
   and `ReplicationState::set_offset`.
