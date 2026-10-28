@@ -30,12 +30,50 @@ class Reply;
 // ["failover", next]; a replica at exactly that offset answers
 // REPLCONF FAILOVER-ACK <offset> and becomes a primary, and the old primary
 // then follows it.
+//
+// After a failover the history goes on: a promoted replica keeps which
+// primary it followed and how far (ReplPrevious). The other replicas of that
+// primary, and the old primary itself, ask for REPLSYNC <old id> <offset>; if
+// they are not past the promotion point, the batches they miss are in the
+// promoted replica's own WAL (each with the old primary's offset after it, in
+// repl:offset), so it answers +CONTINUE at the matching place of its own WAL
+// instead of a full sync.
 
 // System column family keys of the replication state; a replica never takes
 // the primary's own ones.
 inline constexpr std::string_view kReplOwnIdKey = "repl:id";             // this server's replication id
 inline constexpr std::string_view kReplPrimaryIdKey = "repl:primary-id";  // replica: the id it follows
 inline constexpr std::string_view kReplOffsetKey = "repl:offset";         // replica: next sequence to fetch
+inline constexpr std::string_view kReplSegmentKey = "repl:segment";       // replica: where its copy began
+inline constexpr std::string_view kReplPreviousKey = "repl:previous";     // promoted: the history it continues
+
+// Where a replica's copy of its primary's history began: the primary's offset
+// `offset` holds this server's data up to its own sequence `own` (the next it
+// would write). Written with the batch that starts the copy: the end of a full
+// sync, or the switch to a promoted replica.
+struct ReplSegment {
+  uint64_t offset = 0;
+  uint64_t own = 0;
+};
+
+// What a promoted replica keeps of the history it followed.
+struct ReplPrevious {
+  std::string id;       // the primary it followed
+  uint64_t offset = 0;  // that primary's offset it had reached
+  uint64_t own = 0;     // its own next sequence then: the old history ends there
+  ReplSegment segment;  // where its copy of that history began
+};
+
+std::string encode_segment(const ReplSegment& segment);
+std::optional<ReplSegment> read_segment(RocksStorage& storage);
+std::optional<ReplPrevious> read_previous(RocksStorage& storage);
+// A replica becomes a primary: drops its replica state, keeping what it
+// followed as ReplPrevious (if it had a complete copy).
+void keep_history_at_promotion(RocksStorage& storage);
+// Where in this server's own WAL a replica that followed `id` up to `offset`
+// goes on, or nullopt (a full sync): `id` must be the history this server
+// continues, and `offset` within this server's copy of it.
+std::optional<uint64_t> continue_previous(RocksStorage& storage, std::string_view id, uint64_t offset);
 
 // Snapshot and WAL batches sent to a replica are about this large.
 inline constexpr size_t kReplBatchBytes = 1 << 20;
@@ -54,6 +92,7 @@ class ReplicationState {
     bool failover_sent = false;
     bool failover_ok = false;  // the replica answered FAILOVER-ACK
     bool failover_force = false;  // FAILOVER FORCE: it takes over even if it is behind
+    uint64_t needs = 0;           // the oldest WAL sequence it may still ask for (0: none yet)
   };
 
   // This server's replication id (generated and stored on first use).
@@ -75,8 +114,10 @@ class ReplicationState {
   // ---- primary side
   uint64_t add_replica(std::string ip, uint16_t listening_port, bool full);
   void replica_state(uint64_t id, std::string state);
-  void replica_ack(uint64_t id, uint64_t offset);
-  void remove_replica(uint64_t id);
+  void replica_ack(uint64_t id, uint64_t offset, RocksStorage& storage);
+  // A replica will read the WAL from `seq` (the end of its full sync's snapshot).
+  void replica_needs(uint64_t id, uint64_t seq, RocksStorage& storage);
+  void remove_replica(uint64_t id, RocksStorage& storage);
   std::vector<Replica> replicas() const;
   // How many replicas acknowledged everything before `offset` (WAIT).
   size_t acked(uint64_t offset) const;
@@ -119,6 +160,9 @@ class ReplicationState {
   // The replica that answered FAILOVER-ACK (kept after it disconnects to take over).
   uint64_t failover_taken_by_ = 0;
   uint64_t full_syncs_served_ = 0, partial_syncs_served_ = 0;
+
+  // Tells the storage which WAL the replicas still need (under mu_).
+  void hold_wal(RocksStorage& storage) const;
 };
 
 }  // namespace datadam

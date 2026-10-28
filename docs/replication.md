@@ -54,6 +54,7 @@ OK
 |---|---|---|
 | `wal-retention` | primary | How long WAL files are kept after RocksDB no longer needs them. Must be greater than 0 for the primary to serve replicas, and long enough to cover a full sync plus any replica outage you want to bridge without a new full sync. Not changeable at run time. |
 | `wal-retention-size` | primary | Cap on the kept WAL (default `1gb`). A replica that falls behind what is kept does a full sync. |
+| `wal-retention-hold` | primary | How far past `wal-retention-size` the WAL a connected replica still needs is kept (default `8gb`): a full sync takes a while, and the replica continues from the WAL written meanwhile. |
 | `experimental-write-path` | primary | Must be `wal` (default) or `wal-buffered`; without a WAL there is nothing to replicate. |
 | `replicaof host port` | replica | Follow this primary from startup. `slaveof` is an alias. Set by `REPLICAOF` at run time and written by `CONFIG REWRITE`. |
 | `masteruser` | replica | ACL user to log in to the primary with. Changeable with `CONFIG SET`. |
@@ -96,9 +97,12 @@ See [configuration.md](configuration.md) and [security.md](security.md).
 
 1. **Handshake.** The replica connects (5 s timeout), sends `AUTH` if `masterauth` is set, `PING`, and
    `REPLCONF listening-port <port>`, then `REPLSYNC <replication-id> <offset>` with the primary id and offset it
-   stored last time (`? 0` if it has none).
+   stored last time (`? 0` if it has none; a server that was a primary until now sends its own id and its
+   latest sequence plus one).
 2. **Continue or full sync.** The primary answers `+CONTINUE` if the id is its own and it still keeps the WAL
-   from that offset. Otherwise, or the first time, it answers `+FULLSYNC`. A primary without a kept WAL refuses:
+   from that offset, or if the id is that of the primary it followed before its promotion and the offset is not
+   past the promotion point (see [Promotion](#promotion)). Otherwise, or the first time, it
+   answers `+FULLSYNC`. A primary without a kept WAL refuses:
    `ERR replication needs the WAL kept on the primary: set wal-retention`.
 3. **Full sync.** The replica deletes all its data, index definitions included. The primary reads a RocksDB
    snapshot and sends every column family in batches of about 1 MB, then streams from the snapshot's sequence.
@@ -189,12 +193,16 @@ restarts.
   primary used;
 - reloads index definitions and resumes any backfill that was still `building`;
 - turns writes back on;
-- forgets the stored primary id and offset and generates a new replication id.
+- generates a new replication id, and keeps the old primary's id and the offset it had reached.
 
-Because the id is new, every other server pointed at the promoted one afterwards (other replicas, or the old
-primary) does a full sync: datadam does not try to reconcile histories. Writes that the old primary
-acknowledged but had not yet streamed to the promoted replica are not on the new primary; when the old primary
-is made a replica, its data is replaced by a full sync.
+The other replicas of the old primary, pointed at the promoted one afterwards, continue without a full sync
+when they are not past the promotion point: what they miss is in the promoted server's own WAL (each batch it
+applied carries the old primary's offset after it), so it streams from the matching place. The usual case after
+a failover, since Sentinel promotes the replica that got furthest. So does the old primary, if it took no write
+after the promotion point (a [`FAILOVER`](#failover) hand-over, or a primary that stopped). A server that is
+past it, with writes the new primary never got, does a full sync and loses them: datadam does not reconcile
+histories. That includes writes the old primary acknowledged, even with `WAIT`, after the promotion: they
+were never on the new primary.
 
 For a hand-over that loses nothing, use [`FAILOVER`](#failover) instead; for automatic failover, Redis
 Sentinel.
@@ -255,7 +263,8 @@ replica:
    `waiting-for-sync`).
 3. It tells the replica in the replication stream (`failover-in-progress`); the replica, if it is at exactly
    that position, answers and becomes a primary.
-4. The old primary follows it (as with `REPLICAOF`, a full sync) and its `replicaof` setting points at it.
+4. The old primary follows it, continuing where it handed over (no full sync), and its `replicaof` setting
+   points at it.
 
 `FAILOVER` replies `OK` once the hand-over has started; watch `INFO replication` for its end. In tests on one
 machine it takes about 30 ms.
@@ -302,8 +311,14 @@ until Sentinel corrects it once more.
 ## Limits
 
 - **Not compatible with Redis replication** (`PSYNC`/`SYNC`): a datadam replica follows a datadam primary.
-- **A server that starts following another one does a full sync**, also after a failover: replication offsets
-  are each primary's own WAL positions, so a history cannot be continued on another server.
+- **A server that starts following another one does a full sync**, except a replica (or the old primary) of the
+  primary a promoted server followed, as long as it is not past the promotion point. Only the last history is
+  kept: after two promotions in a row, the replicas of the first primary sync in full.
+- **`SENTINEL FAILOVER` does not pause the old primary.** Until Sentinel re-points them, the old primary takes
+  writes and its other replicas acknowledge them (`WAIT`), and none of them reach the promoted replica: in a
+  test with writes at 6000/s, about two seconds of acknowledged writes were lost, and the replicas past the
+  promotion point synced in full. Redis has the same window. For a planned hand-over, use `FAILOVER` on the
+  primary; to make `WAIT` mean "on the replica Sentinel will promote", wait for every replica.
 - **Full syncs** copy the whole database and delete the replica's data first; the primary needs enough
   `wal-retention` to cover one.
 - **Chained replication** (a replica of a replica) is not a tested setup.
@@ -334,11 +349,12 @@ until Sentinel corrects it once more.
 
 ### Re-point other replicas and the old primary
 
-1. On each other replica: `REPLICAOF <new-primary-host> <new-primary-port>`, then `CONFIG REWRITE`. Each does a
-   full sync.
+1. On each other replica: `REPLICAOF <new-primary-host> <new-primary-port>`, then `CONFIG REWRITE`. Each
+   continues where it is, unless it got writes the new primary never had: then it does a full sync.
 2. To bring the old primary back as a replica, add `replicaof <new-primary-host> <port>` (and `masteruser` /
    `masterauth` if needed) to its configuration file before starting it, so it starts read-only and never takes
    writes as a second primary. If it is already running, run `REPLICAOF <new-primary-host> <port>` and
-   `CONFIG REWRITE`. Its data is replaced by a full sync.
+   `CONFIG REWRITE`. It continues if it took no write after the promotion point; otherwise its data is
+   replaced by a full sync.
 3. The new primary needs `wal-retention` for this; if it was started without it, set it and restart before
    re-pointing.

@@ -117,6 +117,7 @@ loses nothing; `fsync` only decides what a power loss or kernel crash can lose. 
 |---|---|---|---|---|
 | `wal-retention` | duration | `0` | no | How long RocksDB keeps WAL files after it no longer needs them for recovery, so `CDC.READ` and replicas can read the changes in them. `0` turns the change feed off. Otherwise at least `1s`; it is rounded down to whole seconds. Needs `experimental-write-path wal` or `wal-buffered`. A primary needs it for replication. |
 | `wal-retention-size` | size | `1gb` | no | Upper bound for the kept WAL. Once a second, while the kept files add up to more than this, the oldest are deleted. `0` removes the size bound (only `wal-retention` applies). |
+| `wal-retention-hold` | size | `8gb` | no | How far past `wal-retention-size` the kept WAL may grow while a connected replica still needs it: one in a full sync continues from the WAL written meanwhile, which heavy writes can push past `wal-retention-size` (it would then sync again, and again). Past this, the oldest goes anyway. `0` holds nothing. |
 
 See [Change feed](change-feed.md) and [Replication](replication.md).
 

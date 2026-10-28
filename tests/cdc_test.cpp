@@ -57,12 +57,13 @@ class CdcTest : public ::testing::Test {
     fs::remove_all(dir_);
   }
 
-  void open(uint64_t retention_s, uint64_t retention_bytes = 0) {
+  void open(uint64_t retention_s, uint64_t retention_bytes = 0, uint64_t hold_bytes = 0) {
     StorageOptions so;
     so.dir = dir_.string();
     so.fsync = FsyncPolicy::No;
     so.wal_retention_s = retention_s;
     so.wal_retention_bytes = retention_bytes;
+    so.wal_hold_bytes = hold_bytes;
     storage_ = RocksStorage::open(so);
     CacheOptions co;
     co.max_memory = 4 << 20;
@@ -284,6 +285,31 @@ TEST_F(CdcTest, WalReaderGoesOnFromWhereItStopped) {
     EXPECT_EQ(got[i].data, all[i].data);
   }
   EXPECT_EQ(got.back().seq + got.back().count, storage_->latest_sequence() + 1);
+}
+
+TEST_F(CdcTest, WalAReplicaNeedsIsHeld) {
+  close();
+  open(3600, 1, 1ULL << 30);  // keep one byte, but up to 1 GB more that a replica needs
+  run({"SET", "a", "1"});
+  uint64_t first = storage_->latest_sequence();
+  storage_->flush();  // a new WAL file; the old one is archived
+  run({"SET", "b", "2"});
+  storage_->flush();
+  storage_->hold_wal(first);
+  for (int i = 0; i < 50; ++i) {  // archiving happens in the background
+    EXPECT_EQ(storage_->trim_wal(), 0u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_FALSE(run({"CDC.READ", std::to_string(first)}).error);
+  // Once no replica needs it, the size bound applies again.
+  storage_->hold_wal(0);
+  size_t deleted = 0;
+  for (int i = 0; i < 200 && deleted == 0; ++i) {
+    deleted = storage_->trim_wal();
+    if (deleted == 0) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_GT(deleted, 0u);
+  EXPECT_TRUE(run({"CDC.READ", std::to_string(first)}).error);
 }
 
 TEST_F(CdcTest, JsonDocuments) {

@@ -239,7 +239,7 @@ std::unique_ptr<RocksStorage> RocksStorage::open(const StorageOptions& opts) {
   db_opts.keep_log_file_num = 5;
   db_opts.manual_wal_flush = opts.write_path == WritePath::WalBuffered;
   db_opts.WAL_ttl_seconds = opts.wal_retention_s;
-  db_opts.WAL_size_limit_MB = opts.wal_retention_s > 0 ? (opts.wal_retention_bytes + (1 << 20) - 1) >> 20 : 0;
+  db_opts.WAL_size_limit_MB = 0;  // trim_wal bounds the size, sparing what replicas need
 
   rocksdb::LRUCacheOptions cache_opts;
   cache_opts.capacity = opts.block_cache;
@@ -489,10 +489,15 @@ size_t RocksStorage::trim_wal() {
   for (const auto& f : files) {
     if (f->Type() == rocksdb::kArchivedLogFile) kept += f->SizeFileBytes();
   }
+  uint64_t hold = wal_hold_.load(std::memory_order_relaxed);
   size_t deleted = 0;
-  for (const auto& f : files) {  // oldest first
+  for (size_t i = 0; i < files.size(); ++i) {  // oldest first
+    const auto& f = files[i];
     if (kept <= opts_.wal_retention_bytes) break;
     if (f->Type() != rocksdb::kArchivedLogFile) continue;
+    // Holds sequences from `hold` on (the next file starts past it): a replica needs it, and every later one.
+    bool held = hold != 0 && (i + 1 == files.size() || files[i + 1]->StartSequence() > hold);
+    if (held && kept <= opts_.wal_retention_bytes + opts_.wal_hold_bytes) break;
     // Archived WAL files are not needed for recovery; a reader still on this
     // one gets the "no longer kept" error from read_wal.
     std::error_code ec;

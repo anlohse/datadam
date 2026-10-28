@@ -211,6 +211,7 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
   if (key == "rocksdb-background-jobs") return set_number<int>(key, value, &rocksdb_background_jobs, 1, 256);
   if (key == "wal-retention") return set_duration(key, value, &wal_retention);
   if (key == "wal-retention-size") return set_size(key, value, &wal_retention_size);
+  if (key == "wal-retention-hold") return set_size(key, value, &wal_retention_hold);
   if (key == "requirepass") {
     if (value.find_first_of(" \t\r\n") != std::string_view::npos) return "requirepass cannot contain spaces";
     requirepass = std::string(value);
@@ -353,6 +354,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"rocksdb-background-jobs", std::to_string(rocksdb_background_jobs)},
       {"wal-retention", format_duration(wal_retention)},
       {"wal-retention-size", format_size(wal_retention_size)},
+      {"wal-retention-hold", format_size(wal_retention_hold)},
       {"log-level", log_level},
       {"requirepass", requirepass},
       {"replicaof", replicaof},

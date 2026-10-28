@@ -287,13 +287,12 @@ std::string Server::follow(const std::string& host, uint16_t port) {
     if (!ctx_.db.read_only()) return {};  // already a primary
     ctx_.repl.set_primary("", 0);
     ctx_.repl.set_syncing(false);
-    ctx_.db.promote();
-    // A new history: replicas of the old primary sync again, and so would this server.
-    auto batch = st.batch();
-    batch.del(Cf::System, kReplPrimaryIdKey);
-    batch.del(Cf::System, kReplOffsetKey);
-    st.write(batch);
+    // A new history, which goes on from the one followed: replicas of the old
+    // primary (and the old primary) that are not past this point continue
+    // here. Kept before any write of its own can come in.
+    keep_history_at_promotion(st);
     ctx_.repl.new_own_id(st);
+    ctx_.db.promote();
     log_info("replication: this server is a primary now");
     return {};
   }

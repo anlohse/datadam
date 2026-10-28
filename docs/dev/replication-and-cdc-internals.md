@@ -47,22 +47,27 @@ Configuration (see [configuration.md](../configuration.md)):
 | Setting | `Config` | `StorageOptions` | RocksDB |
 |---|---|---|---|
 | `wal-retention` (default 0, else at least 1 s) | `wal_retention` (ms) | `wal_retention_s = ms / 1000` | `WAL_ttl_seconds` |
-| `wal-retention-size` (default 1 GiB) | `wal_retention_size` | `wal_retention_bytes` | `WAL_size_limit_MB`, rounded up to MiB (0 when retention is off) |
+| `wal-retention-size` (default 1 GiB) | `wal_retention_size` | `wal_retention_bytes` | none: `WAL_size_limit_MB` is 0, `trim_wal` bounds the size |
+| `wal-retention-hold` (default 8 GiB) | `wal_retention_hold` | `wal_hold_bytes` | none |
 
 With a TTL set, RocksDB moves WAL files that recovery no longer needs into the `archive/` subdirectory instead of
 deleting them, and deletes archived files older than the TTL. `RocksStorage::wal_retained()` is true when
 `wal_retention_s > 0` and the write path is `wal` or `wal-buffered` (`no-wal` and `memory` write no WAL).
 
-RocksDB enforces `WAL_size_limit_MB` only on a slow periodic check (the code comment notes every 10 minutes), and
-a heavy write load can grow the archive far beyond the limit in that time. So `RocksStorage::trim_wal()` enforces
-it itself, and the `Maintenance` thread in [`main.cpp`](../../src/main.cpp) calls it every second when the WAL
-is retained:
+RocksDB would enforce a `WAL_size_limit_MB` only on a slow periodic check (every 10 minutes), which a heavy
+write load can overshoot far, and without knowing what replicas still need. So the size bound is
+`RocksStorage::trim_wal()`'s alone, and the `Maintenance` thread in [`main.cpp`](../../src/main.cpp) calls it
+every second when the WAL is retained:
 
 1. Return at once unless the WAL is retained and `wal_retention_bytes > 0`.
 2. `GetSortedWalFiles`, sum the sizes of the `kArchivedLogFile` files.
 3. Walk the files oldest first, deleting archived files (with `std::filesystem::remove` on
    `dir / PathName()`) until the archived total is within the limit. Live files are never touched. A failed
    delete logs a warning and stops.
+4. A file that holds sequences from the held one on (`hold_wal(seq)`: the next file starts past `seq`) stops
+   the walk, unless the archived total is past the limit plus `wal_hold_bytes`. The primary holds the oldest
+   `needs` of its replicas: the snapshot's `next` while one does a full sync (a 10 GB sync under heavy writes
+   outlasted 1 GB of WAL, so the replica synced again, and again), then its acknowledged offset.
 
 A reader still positioned in a deleted file gets the "no longer in the kept WAL" error on its next read.
 
@@ -250,7 +255,9 @@ one-line reply to each:
 | `REPLSYNC <replid> <offset>` | `+FULLSYNC ...` or `+CONTINUE ...` |
 
 `REPLSYNC` sends the primary id and offset stored in `repl:primary-id` / `repl:offset` when both exist and no full
-sync is in progress (`!ReplicationState::syncing()`), else `? 0`. On the primary, `cmd_replsync`
+sync is in progress (`!ReplicationState::syncing()`). A server with no `repl:primary-id` but its own `repl:id`
+(a primary until now) sends its own id and `latest_sequence() + 1`: its own history, which a replica it handed
+over to can continue. Else `? 0`. On the primary, `cmd_replsync`
 ([`cmd_repl.cpp`](../../src/server/cmd_repl.cpp)) refuses with
 `ERR replication needs the WAL kept on the primary: set wal-retention` unless `wal_retained()`, then stores the
 id and offset in the `ClientState` and sets `start_replication`. `serve_redis` stops parsing, flushes the
@@ -360,7 +367,8 @@ replica                                                 primary
 `asio::ssl::stream<tcp::socket>`, so a replica can also be served on the TLS port.
 
 1. Decide: partial if `client.repl_id == own_id`, `offset > 0`, `offset >= oldest_sequence()` and
-   `offset <= latest_sequence() + 1`; otherwise full.
+   `offset <= latest_sequence() + 1`; else partial if `continue_previous` maps the offset into this server's own
+   WAL (below, [Promotion](#promotion)); otherwise full. `replica_needs` holds the WAL from `next`.
 2. `ReplicationState::add_replica(ip, listening_port, full)` (state `sync` or `online`); a guard removes it when
    the coroutine ends.
 3. Full sync: take a RocksDB snapshot, reply `+FULLSYNC` with `next = snapshot->sequence() + 1`, then iterate
@@ -415,8 +423,12 @@ starts the next one at once, and its late `down` would otherwise land after the 
 - `wal next batch`: `db.apply_replicated(batch, ids, {{"repl:offset", be64(next)}})`, then `offset = next`
   and `ReplicationState::set_offset`.
 - `snap batch`: `db.apply_replicated(batch, ids, {})`.
-- `snapend`: `finish_full_sync(next)` writes `repl:primary-id`, `repl:offset` and `repl:id` (the clear removed it)
-  in one batch, clears `syncing`, counts the full sync and sets the link `connected`.
+- `snapend`: `finish_full_sync(next)` writes `repl:primary-id`, `repl:offset`, `repl:segment` (`next` and this
+  server's next sequence: where its copy of the history began) and `repl:id` (the clear removed it) in one
+  batch, clears `syncing`, counts the full sync and sets the link `connected`.
+
+A `+CONTINUE` whose id is not the one sent (the primary continues this server's history after a promotion)
+first writes the new `repl:primary-id`, `repl:offset` and `repl:segment`, and drops `repl:previous`.
 - `ping`: nothing (any message resets the 10-second timer and `touched_primary()`).
 - anything else: an error, which drops the link.
 
@@ -480,25 +492,38 @@ backfill writes arrive as ordinary batches.
 
 1. Stop and destroy the `ReplicaLink`; return if the server is not read-only (already a primary).
 2. `ReplicationState::set_primary("", 0)`, `set_syncing(false)`.
-3. `Database::promote()`: read the `collection-version` mark (replicated from the old primary) and raise
+3. `keep_history_at_promotion` (still read-only, so no write of its own comes first): read `repl:primary-id`,
+   `repl:offset` and `repl:segment` at one snapshot (the stopped link may still apply a batch), delete them, and
+   write `repl:previous` = the old primary's id, the offset reached, `snapshot sequence + 1` (where the old
+   history ends in this server's WAL) and the segment. Then a new replication id (`new_own_id`).
+4. `Database::promote()`: read the `collection-version` mark (replicated from the old primary) and raise
    `version_` and `version_limit_` to it, so new collections get versions the old primary never used; reload the
    index registry; `set_read_only(false)`; start the backfill of every index still `Building`.
-4. Delete `repl:primary-id` and `repl:offset`, and generate a new replication id (`new_own_id`). The new
-   history differs from the old primary's, so its other replicas (and this server, should it follow the old
-   primary again) do a full sync.
 
-`REPLICAOF host port` on a primary or replica sets read-only, records the primary and starts a new link. A replica
-that switches to another primary sends its stored id and offset, the new primary sees a different id and answers
-`+FULLSYNC`.
+`continue_previous(storage, id, offset)` serves the old primary's other replicas, and the old primary itself:
+
+- `id` must be `repl:previous`'s, and `segment.offset <= offset <= previous.offset`;
+- at `previous.offset` exactly, the answer is `previous.own`;
+- otherwise every batch this server applied from that primary is in its own WAL with `repl:offset` (the old
+  primary's offset after it): `read_wal` from a little before (`4 * distance + 1024` sequences, never before
+  the segment start or the oldest kept) with a `FindOffset` visitor finds the batch whose `repl:offset` is
+  `offset`, and the replica continues after it. Not found (trimmed, or a gap): full sync.
+
+A server past the promotion point (the old primary after taking writes, or a replica that acknowledged them)
+gets `nullopt` and syncs in full: its extra writes are not in the new history. Only one previous history is
+kept.
+
+`REPLICAOF host port` on a primary or replica sets read-only, records the primary and starts a new link.
 
 ## Known limitations
 
 - **Automatic failover is Redis Sentinel's.** datadam gives Sentinel what it reads (`INFO` fields, `run_id`,
   `REPLICAOF` and `CLIENT KILL` in `MULTI`, Pub/Sub); `tests/docker_sentinel_test.sh` checks a real failover.
-- **Every new following starts with a full sync**, after `FAILOVER` too: offsets are each primary's own WAL
-  sequences, so a replica cannot continue another server's history.
-- **Retention must cover a full sync.** The snapshot is sent before the stream starts at `next`; if the primary
-  trims the WAL past `next` meanwhile, `stream_wal` throws and the replica syncs again.
+- **Only the last history continues.** A promoted server keeps one `repl:previous`; replicas of an earlier
+  primary sync in full. A replica of an unrelated primary always does.
+- **Retention must cover a full sync.** The snapshot is sent before the stream starts at `next`; the WAL from
+  `next` on is held, but only up to `wal-retention-hold` past `wal-retention-size`; past that, `stream_wal`
+  throws and the replica syncs again.
 - **`wal-buffered` delays readers.** With `manual_wal_flush`, a batch reaches the WAL file only when the
   maintenance thread flushes it (about every second), but `latest_sequence()` advances at once. Until then
   `read_wal` cannot return the batch while `on_next_write` already reports the write as done, so a blocked
@@ -528,6 +553,8 @@ replica's `slave_repl_offset` with the primary's `repl_offset` while the link is
 | `FullSyncThenStream` | full sync of every type and an index, streamed writes, cache invalidation, `READONLY`, `ROLE`, `IDX.DROP` and `FLUSHALL` following |
 | `RestartedReplicaContinues` | a restarted replica continues with `+CONTINUE` (no second full sync) |
 | `PromotedReplicaTakesWrites` | `REPLICAOF NO ONE`, new collection versions past the old primary's, the old stream no longer applied |
+| `AfterAPromotionTheOthersContinue` | a replica that fell behind, and the old primary, continue from the promoted one (`continue_previous`), and on after a restart |
+| `AnOldPrimaryThatWroteOnSyncsInFull` | an old primary with a write past the promotion point syncs in full, and loses it |
 | `PrimaryNeedsAKeptWal` | `REPLSYNC` is refused without `wal-retention` |
 | `ReplicaBehindTheKeptWalSyncsAgain` | `trim_wal` removes the WAL a replica needs, which then does a full sync |
 

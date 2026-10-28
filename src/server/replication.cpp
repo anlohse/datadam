@@ -5,6 +5,7 @@
 #include <random>
 
 #include "server/resp.h"
+#include "storage/data_keys.h"
 #include "storage/rocks_storage.h"
 #include "util/clock.h"
 
@@ -19,7 +20,95 @@ std::string random_id() {
   return id;
 }
 
+// Finds, in this server's WAL, the batch a replica applied from its primary
+// that took it to the primary's offset `offset` (the batch's repl:offset), and
+// gives the sequence after it. Stops at `stop` (where that history ended).
+class FindOffset : public WalVisitor {
+ public:
+  FindOffset(uint64_t offset, uint64_t stop) : offset_(offset), stop_(stop) {}
+  bool begin(uint64_t seq, uint64_t count) override {
+    if (found || seq >= stop_) return false;
+    end_ = seq + count;
+    hit_ = false;
+    return true;
+  }
+  void put(Cf cf, std::string_view key, std::string_view value) override {
+    if (cf == Cf::System && key == kReplOffsetKey && value.size() == 8 && read_be64(value) == offset_) hit_ = true;
+  }
+  void del(Cf, std::string_view) override {}
+  void delete_range(Cf, std::string_view, std::string_view) override {}
+  void log_data(std::string_view) override {}
+  void end() override {
+    if (hit_) found = end_;
+  }
+
+  std::optional<uint64_t> found;
+
+ private:
+  uint64_t offset_, stop_;
+  uint64_t end_ = 0;
+  bool hit_ = false;
+};
+
 }  // namespace
+
+std::string encode_segment(const ReplSegment& segment) {
+  return encode_u64(segment.offset) + encode_u64(segment.own);
+}
+
+std::optional<ReplSegment> read_segment(RocksStorage& storage) {
+  std::string v;
+  if (!storage.get(Cf::System, kReplSegmentKey, &v) || v.size() != 16) return std::nullopt;
+  return ReplSegment{read_be64(v), read_be64(std::string_view(v).substr(8))};
+}
+
+std::optional<ReplPrevious> read_previous(RocksStorage& storage) {
+  std::string v;
+  if (!storage.get(Cf::System, kReplPreviousKey, &v) || v.size() <= 32) return std::nullopt;
+  std::string_view s = v;
+  return ReplPrevious{std::string(s.substr(32)), read_be64(s), read_be64(s.substr(8)),
+                      ReplSegment{read_be64(s.substr(16)), read_be64(s.substr(24))}};
+}
+
+void keep_history_at_promotion(RocksStorage& storage) {
+  // Read at one snapshot: the replica link may still apply a batch meanwhile,
+  // and the offset reached must match the sequence it was reached at.
+  auto snap = storage.snapshot();
+  std::string id, offset, segment;
+  bool complete = storage.get(Cf::System, kReplPrimaryIdKey, &id, snap.get()) &&
+                  storage.get(Cf::System, kReplOffsetKey, &offset, snap.get()) && offset.size() == 8 &&
+                  storage.get(Cf::System, kReplSegmentKey, &segment, snap.get()) && segment.size() == 16;
+  auto batch = storage.batch();
+  batch.del(Cf::System, kReplPrimaryIdKey);
+  batch.del(Cf::System, kReplOffsetKey);
+  batch.del(Cf::System, kReplSegmentKey);
+  if (complete) {
+    std::string_view seg = segment;
+    batch.put(Cf::System, kReplPreviousKey,
+              encode_u64(read_be64(offset)) + encode_u64(snap->sequence() + 1) + std::string(seg) + id);
+  } else {
+    batch.del(Cf::System, kReplPreviousKey);  // a full sync that never finished: nothing to go on from
+  }
+  storage.write(batch);
+}
+
+std::optional<uint64_t> continue_previous(RocksStorage& storage, std::string_view id, uint64_t offset) {
+  auto prev = read_previous(storage);
+  if (!prev || prev->id != id || offset > prev->offset || offset < prev->segment.offset) return std::nullopt;
+  if (offset == prev->offset) return prev->own;
+  // Each batch applied from that primary adds one operation of its own (the
+  // repl:offset put), so the batch sought starts at most about twice the
+  // offset distance before the end of the old history.
+  uint64_t back = 4 * (prev->offset - offset) + 1024;
+  uint64_t from = std::max({prev->segment.own, prev->own > back ? prev->own - back : 1, storage.oldest_sequence()});
+  FindOffset finder(offset, prev->own);
+  try {
+    storage.read_wal(from, finder);
+  } catch (const StorageError&) {
+    return std::nullopt;  // no longer kept
+  }
+  return finder.found;
+}
 
 std::string ReplicationState::own_id(RocksStorage& storage) {
   std::lock_guard lock(mu_);
@@ -103,7 +192,7 @@ void ReplicationState::replica_state(uint64_t id, std::string state) {
   }
 }
 
-void ReplicationState::replica_ack(uint64_t id, uint64_t offset) {
+void ReplicationState::replica_ack(uint64_t id, uint64_t offset, RocksStorage& storage) {
   std::vector<std::shared_ptr<KeyWatch::Waiter>> wake;
   {
     std::lock_guard lock(mu_);
@@ -111,8 +200,10 @@ void ReplicationState::replica_ack(uint64_t id, uint64_t offset) {
       if (r.id == id) {
         r.ack_offset = offset;
         r.last_ack_ms = steady_time_ms();
+        r.needs = offset;  // after a reconnection it continues from what it applied
       }
     }
+    hold_wal(storage);
     wake.swap(ack_waiters_);
   }
   for (const auto& w : wake) w->fire();
@@ -200,9 +291,26 @@ std::string ReplicationState::failover_state() const {
   return failover_state_;
 }
 
-void ReplicationState::remove_replica(uint64_t id) {
+void ReplicationState::replica_needs(uint64_t id, uint64_t seq, RocksStorage& storage) {
+  std::lock_guard lock(mu_);
+  for (auto& r : replicas_) {
+    if (r.id == id) r.needs = seq;
+  }
+  hold_wal(storage);
+}
+
+void ReplicationState::remove_replica(uint64_t id, RocksStorage& storage) {
   std::lock_guard lock(mu_);
   std::erase_if(replicas_, [id](const Replica& r) { return r.id == id; });
+  hold_wal(storage);
+}
+
+void ReplicationState::hold_wal(RocksStorage& storage) const {
+  uint64_t oldest = 0;
+  for (const auto& r : replicas_) {
+    if (r.needs != 0 && (oldest == 0 || r.needs < oldest)) oldest = r.needs;
+  }
+  storage.hold_wal(oldest);
 }
 
 std::string ReplicationState::info(RocksStorage& storage, unsigned replica_priority) {

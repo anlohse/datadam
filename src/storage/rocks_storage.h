@@ -54,6 +54,9 @@ struct StorageOptions {
   // limit). They are what read_wal reads: the change feed (CDC).
   uint64_t wal_retention_s = 0;
   uint64_t wal_retention_bytes = 0;
+  // How much more than wal_retention_bytes is kept while a replica still
+  // needs it (hold_wal).
+  uint64_t wal_hold_bytes = 0;
 };
 
 // What read_wal hands out: the entries of each write batch, in order.
@@ -226,11 +229,16 @@ class RocksStorage {
   uint64_t oldest_sequence() const;
   // Bytes of WAL on disk (live and kept).
   uint64_t wal_bytes() const;
-  // Deletes the oldest kept WAL files while they exceed wal_retention_bytes.
-  // RocksDB checks that limit only every 10 minutes, which heavy writes can
-  // overshoot by far, so the server calls this every second. Returns the
-  // number of files deleted.
+  // Deletes the oldest kept WAL files while they exceed wal_retention_bytes
+  // (RocksDB would check only every 10 minutes, which heavy writes can
+  // overshoot by far: the server calls this every second). Files holding
+  // sequences from the held one on are kept up to wal_hold_bytes longer.
+  // Returns the number of files deleted.
   size_t trim_wal();
+  // The oldest sequence a replica still needs (0: none): a replica in a long
+  // full sync under heavy writes would otherwise lose the WAL it continues
+  // from, and sync again, and again.
+  void hold_wal(uint64_t seq) { wal_hold_.store(seq, std::memory_order_relaxed); }
   // Visits the write batches from the one holding sequence `from` (0: the
   // oldest kept) to the newest. Throws StorageError if `from` is older than
   // what is kept.
@@ -306,6 +314,7 @@ class RocksStorage {
 
   StorageOptions opts_;
   std::atomic<FsyncPolicy> fsync_;
+  std::atomic<uint64_t> wal_hold_{0};
   std::shared_ptr<rocksdb::Cache> block_cache_;
   std::unique_ptr<rocksdb::DB> db_;
   std::vector<rocksdb::ColumnFamilyHandle*> handles_;

@@ -83,6 +83,9 @@ struct Config {
   // after it is no longer needed for recovery. 0 turns the feed off.
   std::chrono::milliseconds wal_retention{0};
   uint64_t wal_retention_size = 1ULL << 30;
+  // How far past wal_retention_size the kept WAL may grow while a connected
+  // replica still needs it (a long full sync under heavy writes).
+  uint64_t wal_retention_hold = 8ULL << 30;
 
   std::string log_level = "info";
 

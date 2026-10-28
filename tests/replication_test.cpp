@@ -279,6 +279,72 @@ TEST_F(ReplicationTest, PromotedReplicaTakesWrites) {
   EXPECT_EQ(r.run({"GET", "late"}).text, "");
 }
 
+TEST_F(ReplicationTest, AfterAPromotionTheOthersContinue) {
+  // A primary and two replicas; the second falls behind, then the first is promoted.
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  start_replica();
+  auto other = std::make_unique<Node>(dir_ / "other", 3600, std::format("127.0.0.1 {}", primary_->port()));
+  auto other_caught_up = [&](Node& primary) {
+    return other->info("master_link_status") == "up" &&
+           other->info("slave_repl_offset") == primary.info("repl_offset");
+  };
+  ASSERT_TRUE(eventually([&] { return caught_up() && other_caught_up(*primary_); }));
+  other.reset();
+  for (int i = 0; i < 50; ++i) EXPECT_EQ(p.text({"SET", std::format("b{}", i), "2"}), "OK");
+  ASSERT_TRUE(eventually([&] { return caught_up(); }));
+  Client r(replica_->port());
+  EXPECT_EQ(r.text({"REPLICAOF", "NO", "ONE"}), "OK");
+  EXPECT_EQ(r.text({"SET", "c", "3"}), "OK");
+
+  // The replica that was behind goes on from the promoted one, in its WAL.
+  other = std::make_unique<Node>(dir_ / "other", 3600, std::format("127.0.0.1 {}", replica_->port()));
+  ASSERT_TRUE(eventually([&] { return other_caught_up(*replica_); }));
+  EXPECT_EQ(other->info("full_syncs"), "0");
+  EXPECT_EQ(other->info("partial_syncs"), "1");
+  Client o(other->port());
+  EXPECT_EQ(o.text({"GET", "a"}), "1");
+  EXPECT_EQ(o.text({"GET", "b49"}), "2");
+  EXPECT_EQ(o.text({"GET", "c"}), "3");
+
+  // So does the old primary, which wrote nothing since.
+  EXPECT_EQ(p.text({"REPLICAOF", "127.0.0.1", std::to_string(replica_->port())}), "OK");
+  ASSERT_TRUE(eventually([&] {
+    return primary_->info("master_link_status") == "up" &&
+           primary_->info("slave_repl_offset") == replica_->info("repl_offset");
+  }));
+  EXPECT_EQ(primary_->info("full_syncs"), "0");
+  EXPECT_EQ(primary_->info("partial_syncs"), "1");
+  EXPECT_EQ(p.text({"GET", "c"}), "3");
+  // And both go on: their offsets are the new primary's now.
+  EXPECT_EQ(r.text({"SET", "d", "4"}), "OK");
+  EXPECT_EQ(r.text({"WAIT", "2", "5000"}), "2");
+  EXPECT_EQ(o.text({"GET", "d"}), "4");
+  other.reset();
+  other = std::make_unique<Node>(dir_ / "other", 3600, std::format("127.0.0.1 {}", replica_->port()));
+  ASSERT_TRUE(eventually([&] { return other_caught_up(*replica_); }));
+  EXPECT_EQ(other->info("full_syncs"), "0");
+}
+
+TEST_F(ReplicationTest, AnOldPrimaryThatWroteOnSyncsInFull) {
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  start_replica();
+  ASSERT_TRUE(eventually([&] { return caught_up(); }));
+  Client r(replica_->port());
+  EXPECT_EQ(r.text({"REPLICAOF", "NO", "ONE"}), "OK");
+  // Written after the promotion: the new primary never had it.
+  EXPECT_EQ(p.text({"SET", "lost", "1"}), "OK");
+  EXPECT_EQ(p.text({"REPLICAOF", "127.0.0.1", std::to_string(replica_->port())}), "OK");
+  ASSERT_TRUE(eventually([&] {
+    return primary_->info("master_link_status") == "up" &&
+           primary_->info("slave_repl_offset") == replica_->info("repl_offset");
+  }));
+  EXPECT_EQ(primary_->info("full_syncs"), "1");
+  EXPECT_EQ(p.text({"GET", "a"}), "1");
+  EXPECT_EQ(p.run({"GET", "lost"}).text, "");
+}
+
 TEST_F(ReplicationTest, PrimaryNeedsAKeptWal) {
   primary_.reset();
   primary_ = std::make_unique<Node>(dir_ / "primary2", 0);  // no wal-retention
@@ -371,6 +437,9 @@ TEST_F(ReplicationTest, FailoverSwapsTheRoles) {
   ASSERT_TRUE(eventually([&] { return replica_->info("role") == "master" && primary_->info("role") == "slave"; }))
       << primary_->info("master_failover_state");
   ASSERT_TRUE(eventually([&] { return primary_->info("master_link_status") == "up"; }));
+  // It handed over at its last write: it continues, no full sync.
+  EXPECT_EQ(primary_->info("full_syncs"), "0");
+  EXPECT_EQ(primary_->info("partial_syncs"), "1");
   Client r(replica_->port());
   EXPECT_EQ(r.text({"GET", "a"}), "1");
   EXPECT_EQ(r.text({"SET", "b", "2"}), "OK");

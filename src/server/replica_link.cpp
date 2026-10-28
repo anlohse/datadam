@@ -107,6 +107,7 @@ void finish_full_sync(Session<Stream>& s, uint64_t next) {
   auto batch = st.batch();
   batch.put(Cf::System, kReplPrimaryIdKey, s.primary_id);
   batch.put(Cf::System, kReplOffsetKey, encode_u64(next));
+  batch.put(Cf::System, kReplSegmentKey, encode_segment({next, st.latest_sequence() + 1}));
   batch.put(Cf::System, kReplOwnIdKey, s.ctx.repl.own_id(st));  // the sync removed it
   st.write(batch);
   s.ctx.db.finish_full_sync();
@@ -239,11 +240,17 @@ asio::awaitable<void> sync_with(std::shared_ptr<ReplicaLink::Shared> sh, Stream&
     throw std::runtime_error("the primary refused REPLCONF: " + reply);
   }
   // Resume where the last stream stopped, if this replica has a complete copy.
+  // A server that followed nobody (a primary until now) offers its own
+  // history, which a replica it handed over to can continue.
   std::string followed, raw_offset;
   uint64_t offset = 0;
-  if (st.get(Cf::System, kReplPrimaryIdKey, &followed) && st.get(Cf::System, kReplOffsetKey, &raw_offset) &&
-      raw_offset.size() == 8 && !ctx.repl.syncing()) {
+  bool following = st.get(Cf::System, kReplPrimaryIdKey, &followed);
+  if (ctx.repl.syncing()) {
+    followed = "?";
+  } else if (following && st.get(Cf::System, kReplOffsetKey, &raw_offset) && raw_offset.size() == 8) {
     offset = read_be64(raw_offset);
+  } else if (!following && st.get(Cf::System, kReplOwnIdKey, &followed) && followed.size() == 40) {
+    offset = st.latest_sequence() + 1;
   } else {
     followed = "?";
   }
@@ -267,7 +274,20 @@ asio::awaitable<void> sync_with(std::shared_ptr<ReplicaLink::Shared> sh, Stream&
     ctx.db.clear_for_full_sync();
     full_sync_next = *next;
   } else {
-    log_info("replication: continuing from {}:{} at offset {}", sh->host, sh->port, *next);
+    if (s.primary_id != followed) {
+      // The primary continues the history this server had: from here on, the
+      // copy is of the primary's.
+      auto batch = st.batch();
+      batch.put(Cf::System, kReplPrimaryIdKey, s.primary_id);
+      batch.put(Cf::System, kReplOffsetKey, encode_u64(*next));
+      batch.put(Cf::System, kReplSegmentKey, encode_segment({*next, st.latest_sequence() + 1}));
+      batch.del(Cf::System, kReplPreviousKey);
+      st.write(batch);
+      log_info("replication: continuing the history of {} from {}:{} (primary {}) at offset {}", followed, sh->host,
+               sh->port, s.primary_id, *next);
+    } else {
+      log_info("replication: continuing from {}:{} at offset {}", sh->host, sh->port, *next);
+    }
     s.offset = *next;
     s.acked = s.offset;
     ctx.repl.count_sync(false);
@@ -415,7 +435,7 @@ asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t rep
         break;
       }
       if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "ack")) {
-        if (auto offset = parse_uint64(cmd[2])) ctx.repl.replica_ack(replica, *offset);
+        if (auto offset = parse_uint64(cmd[2])) ctx.repl.replica_ack(replica, *offset, ctx.db.storage());
       } else if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "failover-ack")) {
         ctx.repl.failover_ack(replica);
       }
@@ -434,22 +454,37 @@ asio::awaitable<void> serve_replica(ServerContext& ctx, Stream& stream, ClientSt
   RocksStorage::CfIds ids = st.cf_ids();
   uint64_t offset = client.repl_offset;
   bool partial = client.repl_id == id && offset > 0 && offset >= st.oldest_sequence() && offset <= st.latest_sequence() + 1;
+  bool continued = false;  // a replica of the primary this server followed, going on here
+  if (!partial && offset > 0) {
+    auto at = continue_previous(st, client.repl_id, offset);
+    if (at && *at >= st.oldest_sequence() && *at <= st.latest_sequence() + 1) {
+      offset = *at;
+      partial = continued = true;
+    }
+  }
   std::string ip = client.addr.substr(0, client.addr.rfind(':'));
   uint64_t replica = ctx.repl.add_replica(ip, client.listening_port, !partial);
   struct Gone {
     ServerContext& ctx;
     uint64_t replica;
-    ~Gone() { ctx.repl.remove_replica(replica); }
+    ~Gone() { ctx.repl.remove_replica(replica, ctx.db.storage()); }
   } gone{ctx, replica};
   try {
     std::string out;
     uint64_t next = offset;
     if (partial) {
+      ctx.repl.replica_needs(replica, next, st);
       out = std::format("+CONTINUE {} {} {}\r\n", id, next, ids_text(ids));
-      log_info("replication: replica {} continues at offset {}", client.addr, next);
+      if (continued) {
+        log_info("replication: replica {} continues the history of {} (at its offset {}) at offset {}", client.addr,
+                 client.repl_id, client.repl_offset, next);
+      } else {
+        log_info("replication: replica {} continues at offset {}", client.addr, next);
+      }
     } else {
       auto snap = st.snapshot();
       next = snap->sequence() + 1;
+      ctx.repl.replica_needs(replica, next, st);  // the WAL it continues from, written while it syncs
       out = std::format("+FULLSYNC {} {} {}\r\n", id, next, ids_text(ids));
       log_info("replication: full sync to replica {} (up to offset {})", client.addr, next);
       for (Cf cf : {Cf::Meta, Cf::Data, Cf::Index, Cf::System}) {
