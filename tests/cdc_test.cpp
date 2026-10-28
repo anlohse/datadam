@@ -320,3 +320,25 @@ TEST_F(CdcTest, JsonDocuments) {
   EXPECT_EQ(changes({"CDC.READ", std::to_string(next)}), (std::vector<std::string>{R"(json doc {"a":1} 0)",
                                                                                     R"(json doc {"a":2} 0)"}));
 }
+
+TEST(WalBoundTest, ASeldomWrittenColumnFamilyDoesNotHoldTheWal) {
+  fs::path dir = fs::temp_directory_path() / ("datadam_walbound_" + std::to_string(std::random_device{}()));
+  StorageOptions so;
+  so.dir = dir.string();
+  so.fsync = FsyncPolicy::No;
+  so.write_buffer = 256 << 10;  // the live WAL is bounded at 2 MB
+  {
+    auto st = RocksStorage::open(so);
+    st->put(Cf::System, "seldom", "written");  // this column family's only write
+    std::string value(1000, 'x');
+    for (int i = 0; i < 20000; ++i) st->put("k" + std::to_string(i), value);  // 20 MB in another
+    // Left to RocksDB, the bound would be 4 times all the memtables, 20 MB: every WAL file would stay.
+    bool bounded = false;
+    for (int i = 0; i < 500 && !bounded; ++i) {  // flushes run in the background
+      bounded = st->live_wal_bytes() < (8u << 20);
+      if (!bounded) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(bounded) << st->live_wal_bytes();
+  }
+  fs::remove_all(dir);
+}

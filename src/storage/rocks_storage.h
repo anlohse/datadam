@@ -229,6 +229,8 @@ class RocksStorage {
   uint64_t oldest_sequence() const;
   // Bytes of WAL on disk (live and kept).
   uint64_t wal_bytes() const;
+  // Bytes of the live WAL (what a restart replays).
+  uint64_t live_wal_bytes() const;
   // Deletes the oldest kept WAL files while they exceed wal_retention_bytes
   // (RocksDB would check only every 10 minutes, which heavy writes can
   // overshoot by far: the server calls this every second). Files holding

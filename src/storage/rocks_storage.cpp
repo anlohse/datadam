@@ -41,6 +41,15 @@ void check_first_batch(uint64_t from, uint64_t first) {
   }
 }
 
+// A WAL file goes only once every column family with writes in it has
+// flushed them. Left to RocksDB (0), the bound is 4 times all the memtables of
+// all the column families (5 of them, 4 memtables each): with 128 MB ones, 10 GB
+// of WAL held by a column family that is seldom written (System, Index), a
+// recovery that replays all of it, and a flush of everything when it is
+// reached. Past this, RocksDB flushes the column families that hold the
+// oldest WAL file, which are small.
+uint64_t max_total_wal_size(uint64_t write_buffer) { return 8 * write_buffer; }
+
 // After the last batch: the end of the WAL reads as "not found" or "sequence
 // not written yet", just no more batches.
 void check_wal_end(rocksdb::TransactionLogIterator& it) {
@@ -238,6 +247,7 @@ std::unique_ptr<RocksStorage> RocksStorage::open(const StorageOptions& opts) {
   db_opts.bytes_per_sync = 1 << 20;
   db_opts.keep_log_file_num = 5;
   db_opts.manual_wal_flush = opts.write_path == WritePath::WalBuffered;
+  db_opts.max_total_wal_size = max_total_wal_size(opts.write_buffer);
   db_opts.WAL_ttl_seconds = opts.wal_retention_s;
   db_opts.WAL_size_limit_MB = 0;  // trim_wal bounds the size, sparing what replicas need
 
@@ -763,6 +773,18 @@ void RocksStorage::set_write_buffer_size(uint64_t bytes) {
   for (auto* h : handles_) {
     check(db_->SetOptions(h, {{"write_buffer_size", std::to_string(bytes)}}), "set write buffer size");
   }
+  check(db_->SetDBOptions({{"max_total_wal_size", std::to_string(max_total_wal_size(bytes))}}),
+        "set max total wal size");
+}
+
+uint64_t RocksStorage::live_wal_bytes() const {
+  rocksdb::VectorWalPtr files;
+  if (!db_->GetSortedWalFiles(files).ok()) return 0;
+  uint64_t total = 0;
+  for (const auto& f : files) {
+    if (f->Type() == rocksdb::kAliveLogFile) total += f->SizeFileBytes();
+  }
+  return total;
 }
 
 }  // namespace datadam

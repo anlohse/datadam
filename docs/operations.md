@@ -318,6 +318,7 @@ with another thread), and the totals are added up only when `INFO` or `/metrics`
 | `write_batches`, `write_batch_ops`, `write_batch_conflicts` | Group commits, writes in them, and commits forced by a lock conflict |
 | `rocksdb_estimate_num_keys` | RocksDB's estimate of the keys (the `meta` column family: one record per key) |
 | `rocksdb_live_sst_bytes` | Size of the live SST files of the `meta` column family (collection elements and index entries live in other column families and are not included) |
+| `rocksdb_live_wal_bytes` | Size of the live WAL files: what a restart replays. Bounded at 8 times `rocksdb-write-buffer`: past that, RocksDB flushes the column families that hold the oldest file. Kept WAL (`wal-retention`) is not included |
 | `rocksdb_memtable_bytes` | Memtable bytes of the `meta` column family |
 | `rocksdb_block_cache_usage` | Bytes in the shared block cache |
 | `rdb_bgsave_in_progress` | 1 while a `BGSAVE` backup runs |

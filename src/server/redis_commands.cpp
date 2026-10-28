@@ -1409,12 +1409,13 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
     out += std::format(
         "# Persistence\r\nengine:rocksdb\r\ndir:{}\r\nfsync:{}\r\nwrite_batching:{}\r\nwrite_batches:{}\r\n"
         "write_batch_ops:{}\r\nwrite_batch_conflicts:{}\r\nrocksdb_estimate_num_keys:{}\r\n"
-        "rocksdb_live_sst_bytes:{}\r\nrocksdb_memtable_bytes:{}\r\nrocksdb_block_cache_usage:{}\r\n"
+        "rocksdb_live_sst_bytes:{}\r\nrocksdb_live_wal_bytes:{}\r\nrocksdb_memtable_bytes:{}\r\n"
+        "rocksdb_block_cache_usage:{}\r\n"
         "rdb_bgsave_in_progress:{}\r\nrdb_last_save_time:{}\r\nrdb_last_bgsave_status:{}\r\n"
         "last_backup_path:{}\r\nlast_backup_duration_ms:{}\r\n",
         ctx.config.dir, fsync_policy_name(st.fsync_policy()), ctx.write_batching ? "yes" : "no", wb.commits,
         wb.writes, wb.conflicts, st.estimate_keys(), st.property("rocksdb.live-sst-files-size"),
-        st.property("rocksdb.cur-size-all-mem-tables"), st.property("rocksdb.block-cache-usage"),
+        st.live_wal_bytes(), st.property("rocksdb.cur-size-all-mem-tables"), st.property("rocksdb.block-cache-usage"),
         backup.in_progress ? 1 : 0, backup.last_save_s, backup.last_ok ? "ok" : "err", backup.last_path,
         backup.last_duration_ms);
     RocksStorage::WriteStalls ws = st.write_stalls();
