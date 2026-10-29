@@ -18,6 +18,7 @@
       - no acknowledged operation is lost (unless allow-loss: then it reports how
         many were, and the time they span).
       final: writes verify-final.json instead of verify.json (a later check).
+      Exits 1 when any of that fails.
 
 env: REDIS_PASSWORD; HOST, PORT (default 6379); RUN (a key prefix).
 out-dir gets: acks-<worker>.txt ("<unix ms> <highest acknowledged op>", one line
@@ -253,6 +254,7 @@ def verify(out, allow_loss, final):
     with open(os.path.join(out, "verify-final.json" if final else "verify.json"), "w") as f:
         json.dump(result, f, indent=1)
     print(json.dumps({k: v for k, v in result.items() if k != "workers"}))
+    return result["ok"]
 
 
 def main():
@@ -264,7 +266,8 @@ def main():
         seconds, workers, pipeline, churners = (args + [60, 8, 16, 0][len(args):])[:4]
         write(out, seconds, workers, pipeline, churners)
     else:
-        verify(out, "allow-loss" in sys.argv[3:], "final" in sys.argv[3:])
+        if not verify(out, "allow-loss" in sys.argv[3:], "final" in sys.argv[3:]):
+            sys.exit(1)
 
 
 if __name__ == "__main__":

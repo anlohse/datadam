@@ -763,10 +763,9 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    sought again for every batch sent to a replica, replication links that `operator||` left hanging, a full sync
    of every replica after each failover, the WAL a syncing replica needed trimmed under it, and a live WAL that
    grew to 10 GB.
+   Short versions of the crash and failover phases run in CI (`tests/docker_fault_test.sh`), a check for each
+   of those bugs that could come back unseen.
    Next steps, from what those tests showed:
-   - the crash and failover scenarios, short, in CI (`bench/crash_check.py` around a `kill -9`,
-     `bench/ha_check.py` around a Sentinel failover): today a regression of what they found would wait for the
-     next cloud run;
    - CPU per disk read, about 3 times Kvrocks's with more data than memory, the case datadam is for, and likely
      what capped the soak's server at 60k operations a second;
    - the `SENTINEL FAILOVER` window: the old primary keeps taking writes, acknowledged by its other replicas,

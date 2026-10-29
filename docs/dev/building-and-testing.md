@@ -221,6 +221,23 @@ starts a primary, a replica and three `redis-sentinel` containers from `redis:7.
 that the sentinels promote the replica, that it takes writes, and that the old primary, started again, becomes
 its replica.
 
+**[tests/docker_fault_test.sh](../../tests/docker_fault_test.sh)** `[crash|failover]` (image `datadam:latest`, or
+`IMAGE=...`; about 3 minutes) runs short versions of the cloud test's fault phases ([cloud/](../../cloud/README.md)),
+each check standing for a bug they found:
+
+- `crash`: datadam with 4 MB memtables, killed (`kill -9`) twice while `bench/crash_check.py` writes numbered
+  operations of every type: after each restart every acknowledged one is there, what survived is a prefix,
+  collections agree with their counts, and the first round outlives the second crash; under those writes,
+  `rocksdb_live_wal_bytes` stays under 64 MB (it once grew to 10 GB);
+- `failover`: a primary, two replicas and three sentinels; the median of `SET` + `WAIT 1` with 100 MB of WAL
+  behind it must stay within 4 times (plus 1 ms) the one with none (it was 0.2 against 25 ms when the primary
+  sought the WAL for every batch); the primary is killed under `bench/ha_check.py`'s writes: none acknowledged
+  is lost, the other replica continues from the promoted one without a full sync and its link stays up (both
+  once failed), and the old primary comes back as a replica, in sync.
+
+The checkers run in `python:3.12-slim` with `bench/` mounted. Against an image from before those fixes
+(`sha-ce3ed55`), the `WAIT`, full sync and link checks fail.
+
 **[tests/docker_redis_cli.sh](../../tests/docker_redis_cli.sh)** `[image]` (default `datadam:latest`) runs the
 image on a private Docker network and tests it with `redis-cli` from the `redis:7.4` image:
 
@@ -245,7 +262,7 @@ by hand (`workflow_dispatch`); a newer push to the same branch cancels the run i
 
 | Job | Runner | What it does |
 |---|---|---|
-| Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh` and `tests/docker_sentinel_test.sh` against it. On a push to `main` that passed all of it, publishes the image to `ghcr.io/<owner>/datadam` as `latest` and `sha-<short commit>`. |
+| Linux | `ubuntu-24.04` | Builds the Dockerfile's `deps` stage (cached in the GitHub Actions cache, scope `linux-deps`), then its `test` stage (build, `ctest`, `run_integration.sh`), then the runtime image; runs `tests/docker_redis_cli.sh`, `tests/docker_sentinel_test.sh` and `tests/docker_fault_test.sh` against it. On a push to `main` that passed all of it, publishes the image to `ghcr.io/<owner>/datadam` as `latest` and `sha-<short commit>`. |
 | Windows | `windows-2022` | Fetches vcpkg at the manifest's baseline, configures with the `windows` preset in a VS developer environment (`ilammy/msvc-dev-cmd`), builds `windows-release` and runs `ctest`. |
 
 The first run builds every dependency (RocksDB is the slow one) and takes much longer than the next ones. On
