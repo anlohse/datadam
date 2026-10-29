@@ -1,0 +1,27 @@
+Json file /out/s4-redis-r1-mixed-gaussian-p16.json created...
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 10%,   1 secs] 16 threads 50 conns:      395856 ops,  395792 (avg:  395792) ops/sec, 209.30MB/sec (avg: 209.30MB/sec), 31.69 (avg: 31.69) msec latency[RUN #1 20%,   2 secs] 16 threads 50 conns:      712680 ops,  316756 (avg:  356273) ops/sec, 167.50MB/sec (avg: 188.40MB/sec), 40.45 (avg: 35.58) msec latency[RUN #1 30%,   3 secs] 16 threads 50 conns:      957069 ops,  244343 (avg:  318963) ops/sec, 129.21MB/sec (avg: 168.67MB/sec), 52.65 (avg: 39.94) msec latency[RUN #1 40%,   4 secs] 16 threads 50 conns:     1316851 ops,  359715 (avg:  329151) ops/sec, 190.22MB/sec (avg: 174.06MB/sec), 35.54 (avg: 38.74) msec latency[RUN #1 50%,   5 secs] 16 threads 50 conns:     1738639 ops,  421649 (avg:  347653) ops/sec, 222.97MB/sec (avg: 183.84MB/sec), 30.44 (avg: 36.73) msec latency[RUN #1 60%,   6 secs] 16 threads 50 conns:     2144410 ops,  405688 (avg:  357325) ops/sec, 214.53MB/sec (avg: 188.96MB/sec), 31.47 (avg: 35.73) msec latency[RUN #1 70%,   7 secs] 16 threads 50 conns:     2496225 ops,  351726 (avg:  356525) ops/sec, 186.00MB/sec (avg: 188.53MB/sec), 34.68 (avg: 35.58) msec latency[RUN #1 80%,   8 secs] 16 threads 50 conns:     2751441 ops,  255164 (avg:  343855) ops/sec, 134.93MB/sec (avg: 181.83MB/sec), 51.85 (avg: 37.09) msec latency[RUN #1 90%,   9 secs] 16 threads 50 conns:     3083841 ops,  332334 (avg:  342575) ops/sec, 175.74MB/sec (avg: 181.16MB/sec), 38.51 (avg: 37.25) msec latency[RUN #1 100%,  10 secs] 16 threads 50 conns:     3484067 ops,  400148 (avg:  348332) ops/sec, 211.60MB/sec (avg: 184.20MB/sec), 31.64 (avg: 36.60) msec latency[RUN #1 100%,  10 secs]  0 threads 50 conns:     3496867 ops,  400148 (avg:  349470) ops/sec, 211.60MB/sec (avg: 184.80MB/sec), 31.64 (avg: 36.60) msec latency
+
+
+CPU Utilization Summary
+  Total CPU time:   7.127s  (user 4.337s, sys 2.790s)
+  Wall time:        10.015s
+  Cores used:       0.712   (avg 4.4% across 16 worker threads)
+  Peak utilization: 86.8%
+Saving JSON output file: /out/s4-redis-r1-mixed-gaussian-p16.json
+Json file closed.
+16        Threads
+50        Connections per thread
+10        Seconds
+
+
+ALL STATS
+============================================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency  p99.99 Latency       KB/sec 
+--------------------------------------------------------------------------------------------------------------------------------------------
+Sets        69826.27          ---          ---        36.58012        31.74300        83.96700       151.55100       165.88700     38083.74 
+Gets       279110.17    279110.17         0.00        36.60103        31.61500        84.47900       151.55100       165.88700    150866.18 
+Waits           0.00          ---          ---             ---             ---             ---             ---             ---          --- 
+Totals     348936.44    279110.17         0.00        36.59684        31.61500        84.47900       151.55100       165.88700    188949.92 

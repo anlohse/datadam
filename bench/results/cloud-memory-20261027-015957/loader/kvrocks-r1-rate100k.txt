@@ -1,0 +1,27 @@
+Json file /out/kvrocks-r1-rate100k.json created...
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 10%,   1 secs]  8 threads 25 conns:       99800 ops,   99783 (avg:   99783) ops/sec, 52.77MB/sec (avg: 52.77MB/sec),  0.75 (avg:  0.75) msec latency[RUN #1 20%,   2 secs]  8 threads 25 conns:      199800 ops,   99974 (avg:   99878) ops/sec, 52.87MB/sec (avg: 52.82MB/sec),  0.72 (avg:  0.73) msec latency[RUN #1 30%,   3 secs]  8 threads 25 conns:      299800 ops,   99986 (avg:   99914) ops/sec, 52.87MB/sec (avg: 52.84MB/sec),  0.72 (avg:  0.73) msec latency[RUN #1 40%,   4 secs]  8 threads 25 conns:      399800 ops,   99986 (avg:   99932) ops/sec, 52.87MB/sec (avg: 52.85MB/sec),  0.74 (avg:  0.73) msec latency[RUN #1 50%,   5 secs]  8 threads 25 conns:      499801 ops,   99987 (avg:   99943) ops/sec, 52.87MB/sec (avg: 52.85MB/sec),  0.76 (avg:  0.74) msec latency[RUN #1 60%,   6 secs]  8 threads 25 conns:      599800 ops,   99986 (avg:   99950) ops/sec, 52.87MB/sec (avg: 52.85MB/sec),  0.80 (avg:  0.75) msec latency[RUN #1 70%,   7 secs]  8 threads 25 conns:      699804 ops,   99990 (avg:   99956) ops/sec, 52.88MB/sec (avg: 52.86MB/sec),  0.79 (avg:  0.75) msec latency[RUN #1 80%,   8 secs]  8 threads 25 conns:      799809 ops,   99990 (avg:   99960) ops/sec, 52.88MB/sec (avg: 52.86MB/sec),  0.80 (avg:  0.76) msec latency[RUN #1 90%,   9 secs]  8 threads 25 conns:      899809 ops,   99983 (avg:   99962) ops/sec, 52.87MB/sec (avg: 52.86MB/sec),  0.76 (avg:  0.76) msec latency[RUN #1 100%,  10 secs]  8 threads 25 conns:      999820 ops,   99997 (avg:   99966) ops/sec, 52.88MB/sec (avg: 52.86MB/sec),  0.74 (avg:  0.76) msec latency[RUN #1 100%,  10 secs]  0 threads 25 conns:     1000000 ops,   99997 (avg:   99973) ops/sec, 52.88MB/sec (avg: 52.87MB/sec),  0.74 (avg:  0.76) msec latency
+
+
+CPU Utilization Summary
+  Total CPU time:   11.864s  (user 3.879s, sys 7.985s)
+  Wall time:        10.005s
+  Cores used:       1.186   (avg 14.8% across 8 worker threads)
+  Peak utilization: 121.5%
+8         Threads
+25        Connections per thread
+10        Seconds
+
+
+ALL STATS
+============================================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency  p99.99 Latency       KB/sec 
+--------------------------------------------------------------------------------------------------------------------------------------------
+Sets        19996.37          ---          ---         0.99339         0.92700         2.19100         4.15900         5.43900     10906.14 
+Gets        79985.48     79985.48         0.00         0.69830         0.67100         1.61500         2.43100         4.25500     43234.23 
+Waits           0.00          ---          ---             ---             ---             ---             ---             ---          --- 
+Totals      99981.85     79985.48         0.00         0.75731         0.71100         1.86300         2.84700         4.79900     54140.37 
+Saving JSON output file: /out/kvrocks-r1-rate100k.json
+Json file closed.

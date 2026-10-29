@@ -42,6 +42,9 @@ Testing/
 data/
 *.log
 !bench/results/**/*.log
+# Every acknowledged write of the cloud HA and crash checks, by worker: hundreds
+# of MB, read by their verify steps, whose results (verify*.json) are kept.
+bench/results/**/acks-*.txt
 *.tmp
 *.bak
 *.swp
