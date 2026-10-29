@@ -137,7 +137,7 @@ machine (datadam: 45% of the memory as object cache, 15% as block cache, `io-thr
 | 4. Scaling with cores | `scale.tfvars`: i4i.xlarge, 2xlarge and 4xlarge at once, loader c7i.8xlarge | Throughput per core in memory, 800 connections, datadam × Redis × Kvrocks; datadam's `io-threads` swept (`cloud.py scale`) |
 | 5. High availability | `ha.tfvars`: primary + 2 replicas (i4i.xlarge) in 3 zones, 3 sentinels, a loader; 10 GB | Writes with `WAIT 1` (`bench/ha_check.py`) while the primary is killed, a replica restarts, the primary is cut off from the replicas and sentinels (not from the clients), and a planned `SENTINEL FAILOVER`: time without acknowledged writes, acknowledged writes lost (should be 0), full sync and catch-up times (`cloud.py ha`) |
 | 6. Crash | `crash.tfvars`: server i4i.2xlarge, loader c7i.4xlarge; 50 GB | Numbered writes of every type (`bench/crash_check.py`) while datadam is killed (`kill -9`) or the machine hard-rebooted (`sysrq b`, no sync, as a power cut), with `fsync everysec` and `always`; then every acknowledged write looked for: what survived must be a prefix of what was sent, collections must agree with their counts, a kill and an `fsync always` reboot must lose nothing; recovery times (`cloud.py crash`) |
-| 7. Soak | server + loader, 8–12 h | Memory growth, compaction debt, latency drift |
+| 7. Soak | `soak.tfvars`: server i4i.2xlarge, loader c7i.2xlarge; 60 GB, 10 h | Steady load at about half the server's capacity: memtier with values of 100 to 4000 bytes, keys that expire, collections that grow and shrink (`bench/soak_collections.py`), run by the nodes as systemd units; `/metrics` sampled every minute; memory growth, disk and WAL, compaction debt, stalls, latency drift (`cloud.py soak`, `bench/soak_report.py`) |
 
 The scenarios of phases 2 to 7 are added as each phase is prepared.
 
@@ -158,6 +158,16 @@ operations each. Three `kill -9` (two with `fsync everysec`, one with `always`) 
 collection disagreed with its count, and a final check after all seven found every case as it was. datadam
 answered 8 to 13 s after its start with 53 to 71 GB on disk; the machine took about 20 s to reboot. `fsync
 always` took about 35% off the write throughput (130k–140k against 206k–216k operations/s).
+
+Phase 7 (2026-10-28/29, image `sha-9f219b9`, results in `bench/results/cloud-soak-20261029-035904`, summarized
+by `bench/soak_report.py`): 60M keys × 1 KB, then 10 hours of memtier 1:4 gaussian at 30k operations/s with values
+of 100 to 4000 bytes, 2k/s on keys expiring after 30 to 600 s, and 5k/s on collections growing and shrinking
+(180 million operations, no error). 60k/s had been this server's ceiling (58k delivered, 85% CPU, compaction
+debt growing); 30k left it at about 40% CPU. From the second hour to the last, nothing grew: RSS 26.2 → 26.3 GB
+(+3 MB an hour), disk 75.2 → 75.8 GB, live WAL ~0.5 GB, compaction debt ~1.6 GB, no write stall; Get p99 7.3 →
+7.6 ms, p99.9 10.1 → 10.4 ms (a hump to 9 ms in hour 5), Set p99 5.7 → 6.1 ms. After the load, idle eviction
+gave 10 GB back (RSS 16.7 GB). Its pilot found the live WAL growing to ~10 GB, held by the seldom written column
+families (fixed in `9f219b9`: `max_total_wal_size` at 8 times the write buffer).
 
 ## Costs
 
