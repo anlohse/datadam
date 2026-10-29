@@ -1,0 +1,27 @@
+Json file /out/redis-r1-rate100k.json created...
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 10%,   1 secs]  8 threads 25 conns:       99800 ops,   99783 (avg:   99783) ops/sec, 52.77MB/sec (avg: 52.77MB/sec),  0.86 (avg:  0.86) msec latency[RUN #1 20%,   2 secs]  8 threads 25 conns:      199800 ops,   99978 (avg:   99881) ops/sec, 52.87MB/sec (avg: 52.82MB/sec),  0.87 (avg:  0.86) msec latency[RUN #1 30%,   3 secs]  8 threads 25 conns:      298206 ops,   98386 (avg:   99383) ops/sec, 52.03MB/sec (avg: 52.55MB/sec),  0.93 (avg:  0.88) msec latency[RUN #1 40%,   4 secs]  8 threads 25 conns:      395520 ops,   97299 (avg:   98862) ops/sec, 51.45MB/sec (avg: 52.28MB/sec),  0.95 (avg:  0.90) msec latency[RUN #1 50%,   5 secs]  8 threads 25 conns:      492875 ops,   97341 (avg:   98557) ops/sec, 51.48MB/sec (avg: 52.12MB/sec),  0.94 (avg:  0.91) msec latency[RUN #1 60%,   6 secs]  8 threads 25 conns:      592874 ops,   99962 (avg:   98792) ops/sec, 52.86MB/sec (avg: 52.24MB/sec),  0.87 (avg:  0.90) msec latency[RUN #1 70%,   7 secs]  8 threads 25 conns:      692882 ops,   99993 (avg:   98963) ops/sec, 52.88MB/sec (avg: 52.33MB/sec),  0.87 (avg:  0.90) msec latency[RUN #1 80%,   8 secs]  8 threads 25 conns:      792917 ops,   99991 (avg:   99092) ops/sec, 52.88MB/sec (avg: 52.40MB/sec),  0.86 (avg:  0.89) msec latency[RUN #1 90%,   9 secs]  8 threads 25 conns:      890159 ops,   97229 (avg:   98885) ops/sec, 51.42MB/sec (avg: 52.29MB/sec),  0.92 (avg:  0.90) msec latency[RUN #1 100%,  10 secs]  8 threads 25 conns:      981648 ops,   91491 (avg:   98146) ops/sec, 48.38MB/sec (avg: 51.90MB/sec),  1.09 (avg:  0.91) msec latency[RUN #1 100%,  10 secs]  0 threads 25 conns:      981830 ops,   91491 (avg:   98131) ops/sec, 48.38MB/sec (avg: 51.89MB/sec),  1.09 (avg:  0.91) msec latency
+
+
+CPU Utilization Summary
+  Total CPU time:   10.789s  (user 3.865s, sys 6.923s)
+  Wall time:        10.010s
+  Cores used:       1.078   (avg 13.5% across 8 worker threads)
+  Peak utilization: 110.0%
+Saving JSON output file: /out/redis-r1-rate100k.json
+Json file closed.
+8         Threads
+25        Connections per thread
+10        Seconds
+
+
+ALL STATS
+============================================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency  p99.99 Latency       KB/sec 
+--------------------------------------------------------------------------------------------------------------------------------------------
+Sets        19633.19          ---          ---         0.94307         0.91100         2.51100         9.53500        11.96700     10708.05 
+Gets        78494.26     78494.26         0.00         0.90777         0.87900         2.62300         9.59900        12.03100     42428.19 
+Waits           0.00          ---          ---             ---             ---             ---             ---             ---          --- 
+Totals      98127.45     78494.26         0.00         0.91483         0.88700         2.60700         9.59900        12.03100     53136.24 
