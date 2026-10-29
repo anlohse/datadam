@@ -754,3 +754,27 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    second with 50 clients); with a pipeline of 16, `EVAL "return 1"` does 984k per second (Redis: 909k) and an
    `EVAL` with an `INCR` does 359k (Redis without persistence: 587k).
    Next steps: streams; `TEXT` fields and `FT.AGGREGATE`.
+6. **Done:** a test on AWS in seven phases ([cloud/](cloud/README.md), results in `bench/results/cloud-*`):
+   in memory and larger than memory against Redis and Kvrocks, scaling with cores, high availability with
+   Sentinel, crashes and power cuts, and 10 hours of steady load. No acknowledged write was lost to `kill -9`,
+   nor to a power cut with `fsync always` (`everysec`: at most the last 0.6 s); a failover loses none of the
+   writes acknowledged with `WAIT` and stops them for about 5 s; nothing grew in 10 hours. It found six bugs that
+   the unit tests, the sanitizers and the fuzzers had not: one I/O context shared by every thread, the WAL
+   sought again for every batch sent to a replica, replication links that `operator||` left hanging, a full sync
+   of every replica after each failover, the WAL a syncing replica needed trimmed under it, and a live WAL that
+   grew to 10 GB.
+   Next steps, from what those tests showed:
+   - the crash and failover scenarios, short, in CI (`bench/crash_check.py` around a `kill -9`,
+     `bench/ha_check.py` around a Sentinel failover): today a regression of what they found would wait for the
+     next cloud run;
+   - CPU per disk read, about 3 times Kvrocks's with more data than memory, the case datadam is for, and likely
+     what capped the soak's server at 60k operations a second;
+   - the `SENTINEL FAILOVER` window: the old primary keeps taking writes, acknowledged by its other replicas,
+     until Sentinel re-points it (~2 s of them lost in the test); the promoted replica could tell it to stop, as
+     `FAILOVER` does, as an option;
+   - the larger-than-memory latency curve again (that run's memtier replayed the same keys), and the ~25% of
+     CPU the write path leaves idle on 16 vCPUs;
+   - a security review (limits, `CONFIG SET` paths), CodeQL and image scanning, more fuzz targets;
+   - what the tests did not cover: client libraries' own suites (BullMQ, Sidekiq, redis-py, Redlock), a full or
+     failing disk, partitions between clients and server, soaks of weeks, other instance types, and the
+     restart time since the live WAL is bounded (phase 6's 8 to 13 s came before).
