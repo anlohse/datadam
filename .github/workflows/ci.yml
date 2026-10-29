@@ -69,6 +69,10 @@ jobs:
       - name: Redis Sentinel failover
         run: bash tests/docker_sentinel_test.sh
 
+      # The cloud test's crash and failover phases, short: each check is a bug they found.
+      - name: Crashes and failover under writes
+        run: bash tests/docker_fault_test.sh
+
       # Only an image that passed everything above, and only from main.
       - name: Image tags
         id: meta

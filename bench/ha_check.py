@@ -9,11 +9,16 @@
   python ha_check.py verify <out-dir>
       Waits until the replicas are in sync with the primary (none in a full
       sync), then reads back every acknowledged write, on every data node, and
-      counts the ones missing or different.
+      counts the ones missing or different. STRICT=1: exits 1 if a node that
+      answers misses one or is not in sync.
+  python ha_check.py wait-latency <rounds>
+      SET then WAIT 1 on the primary Sentinel names, `rounds` times, one after
+      the other: prints the median and the 99th percentile, in ms.
 
 env: REDIS_PASSWORD; SENTINELS="ip:port,..." (master name: MASTER, default dd);
      NODES="name=ip,..." (the data nodes, port 6379); RUN (a key prefix);
-     WAIT_MS (WAIT's timeout, default 500).
+     WAIT_MS (WAIT's timeout, default 500); SYNC_LIMIT_S (how long verify
+     waits for the replicas, default 900).
 out-dir gets: acks-<worker>.txt ("<unix ms> <key>"), events.jsonl (errors,
 unacknowledged writes, primary changes), replication.jsonl (the samples),
 summary.json (write) and verify.json (verify).
@@ -270,7 +275,7 @@ def replication(host, port):
     return dict(line.split(":", 1) for line in text.split("\r\n") if ":" in line)
 
 
-def wait_in_sync(nodes, out, limit_s=900):
+def wait_in_sync(nodes, out, limit_s=int(os.environ.get("SYNC_LIMIT_S", "900"))):
     """Waits until every reachable replica follows the primary Sentinel names,
     with no sync under way and everything applied: one caught in a full sync (a
     server that took writes the new primary never had) would read as missing
@@ -334,15 +339,37 @@ def verify(out):
     with open(os.path.join(out, "verify.json"), "w") as f:
         json.dump(result, f, indent=1)
     print(json.dumps(result))
+    nodes = [n for n in result["nodes"].values() if "error" not in n]
+    return not result["not_in_sync"] and all(n["missing"] == 0 and n["wrong"] == 0 for n in nodes)
+
+
+def wait_latency(rounds):
+    host, port = Discovery(addr_list("SENTINELS"), Events(os.devnull)).primary()
+    c = Conn(host, port)
+    times = []
+    for i in range(rounds):
+        started = time.perf_counter()
+        c.send(("SET", f"{RUN}:wait:{i}", i), ("WAIT", 1, WAIT_MS))
+        c.read()
+        acked = c.read()
+        times.append((time.perf_counter() - started) * 1000)
+        if not isinstance(acked, int) or acked < 1:  # how many replicas have it: 1 or more
+            sys.exit(f"WAIT answered {acked!r}")
+    c.close()
+    times.sort()
+    print(json.dumps({"rounds": rounds, "p50_ms": round(times[len(times) // 2], 3),
+                      "p99_ms": round(times[int(len(times) * 0.99)], 3)}))
 
 
 def main():
-    if len(sys.argv) < 3 or sys.argv[1] not in ("write", "verify"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("write", "verify", "wait-latency"):
         sys.exit(__doc__)
     if sys.argv[1] == "write":
         write(sys.argv[2], float(sys.argv[3]), int(sys.argv[4]) if len(sys.argv) > 4 else 8)
-    else:
-        verify(sys.argv[2])
+    elif sys.argv[1] == "wait-latency":
+        wait_latency(int(sys.argv[2]))
+    elif not verify(sys.argv[2]) and os.environ.get("STRICT") == "1":
+        sys.exit(1)
 
 
 if __name__ == "__main__":
