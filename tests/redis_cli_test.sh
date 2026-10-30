@@ -740,7 +740,7 @@ EOF
   [[ "$got" == *'"SET" "monkey" "monvalue"'* ]] && report "MONITOR shows commands" 1 ||
     report "MONITOR shows commands" 0 '*"SET" "monkey" "monvalue"*' "$got" "MONITOR"
   rm -f "$mon_out"
-  tc "BACKUP existing path"     "already exists" BACKUP /
+  tc "BACKUP outside backup-dir" "backup-dir" BACKUP /
 
   section "scan"
   t  "FLUSHALL"                 "OK" FLUSHALL

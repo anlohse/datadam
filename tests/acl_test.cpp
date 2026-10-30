@@ -120,6 +120,42 @@ TEST_F(AclTest, ReadOnlyAndWriteOnlyPatterns) {
   EXPECT_EQ(run(bob, {"SINTERCARD", "1", "ro:s"}), ":1\r\n");
 }
 
+TEST_F(AclTest, WritesThatReturnValuesNeedReadAccess) {
+  // A write-only pattern must not be a way to read: GETDEL, LPOP, INCR... return
+  // what the key held, RENAME moves it where it may be read (as in Redis).
+  run({"SET", "wo:1", "secret"});
+  run({"RPUSH", "wo:l", "secret"});
+  ASSERT_EQ(run({"ACL", "SETUSER", "dan", "on", ">pw", "%W~wo:*", "~rw:*", "+@all"}), "+OK\r\n");
+  ClientState dan = login("dan", "pw");
+  for (std::vector<std::string> cmd : std::vector<std::vector<std::string>>{
+           {"GETDEL", "wo:1"}, {"GETSET", "wo:1", "x"}, {"GETEX", "wo:1"}, {"INCR", "wo:n"}, {"LPOP", "wo:l"},
+           {"RENAME", "wo:1", "rw:1"}, {"LMOVE", "wo:l", "rw:l", "LEFT", "LEFT"}, {"SPOP", "wo:s"}}) {
+    EXPECT_TRUE(noperm(run(dan, cmd))) << cmd[0];
+  }
+  EXPECT_EQ(run(dan, {"SET", "wo:1", "x"}), "+OK\r\n");
+  EXPECT_EQ(run(dan, {"DEL", "wo:1"}), ":1\r\n");
+  EXPECT_EQ(run(dan, {"INCR", "rw:n"}), ":1\r\n");
+}
+
+TEST_F(AclTest, OtherConnectionsAreForAdministrators) {
+  // CLIENT KILL and CLIENT LIST reach other users' connections: @admin, as in Redis.
+  ASSERT_EQ(run({"ACL", "SETUSER", "erin", "on", "nopass", "allkeys", "+@all", "-@admin"}), "+OK\r\n");
+  ClientState erin = login("erin", "x");
+  EXPECT_EQ(run(erin, {"CLIENT", "SETNAME", "me"}), "+OK\r\n");
+  EXPECT_EQ(run(erin, {"CLIENT", "LIST"}),
+            "-NOPERM User erin has no permissions to run the 'client|list' command\r\n");
+  EXPECT_TRUE(noperm(run(erin, {"CLIENT", "KILL", "ID", "1"})));
+  ASSERT_EQ(run({"ACL", "SETUSER", "erin", "+client"}), "+OK\r\n");  // the command, every subcommand
+  EXPECT_EQ(run(erin, {"CLIENT", "LIST"}).substr(0, 1), "$");
+  // Names and library info show in CLIENT LIST, space-separated: no spaces or control characters.
+  EXPECT_EQ(run(erin, {"CLIENT", "SETNAME", "a b"}).substr(0, 4), "-ERR");
+  EXPECT_EQ(run(erin, {"CLIENT", "SETINFO", "LIB-NAME", "x\r\nid=1"}).substr(0, 4), "-ERR");
+  EXPECT_EQ(run(erin, {"CLIENT", "SETINFO", "LIB-VER", "1.2.3"}), "+OK\r\n");
+  // ACL rules are written back space-separated: only passwords may hold spaces.
+  EXPECT_EQ(run({"ACL", "SETUSER", "erin", "~a b"}).substr(0, 4), "-ERR");
+  EXPECT_EQ(run({"ACL", "SETUSER", "erin", ">a pass word"}), "+OK\r\n");
+}
+
 TEST_F(AclTest, SubcommandsAndCategories) {
   // Rules apply in order: -@dangerous also drops config|get, so it comes first.
   ASSERT_EQ(run({"ACL", "SETUSER", "carol", "on", "nopass", "allkeys", "+@all", "-@dangerous", "+info", "-config",
@@ -259,6 +295,34 @@ TEST_F(AclTest, ConfigRewriteKeepsTheFileAndAddsWhatChanged) {
   std::stringstream again;
   again << std::ifstream(conf).rdbuf();
   EXPECT_EQ(again.str(), s);
+}
+
+TEST_F(AclTest, ConfigValuesCannotInjectLines) {
+  fs::path conf = dir_ / "inject.conf";
+  fs::create_directories(dir_);
+  std::ofstream(conf) << "port 7000\n";
+  config_ = Config{};
+  ASSERT_EQ(config_.load_file(conf.string()), "");
+  config_.config_file = conf.string();
+  config_.enable_protected_configs = "yes";
+  make_context();
+  // A line break in a value would have become a line of its own on CONFIG REWRITE.
+  EXPECT_EQ(run({"CONFIG", "SET", "masteruser", "x\nuser evil on nopass ~* +@all"}).substr(0, 4), "-ERR");
+  // Spaces, quotes and backslashes are written quoted, and read back the same.
+  std::string odd = R"(/backups/a "b" \c d)";
+  ASSERT_EQ(run({"CONFIG", "SET", "backup-dir", odd}), "+OK\r\n");
+  ASSERT_EQ(run({"CONFIG", "REWRITE"}), "+OK\r\n");
+  Config reloaded;
+  ASSERT_EQ(reloaded.load_file(conf.string()), "");
+  EXPECT_EQ(reloaded.backup_dir, odd);
+  EXPECT_EQ(reloaded.port, 7000);
+  // replicaof's "host port", quoted or not.
+  std::ofstream(conf) << "replicaof \"10.0.0.1 6380\"\n";
+  ASSERT_EQ(reloaded.load_file(conf.string()), "");
+  EXPECT_EQ(reloaded.replicaof, "10.0.0.1 6380");
+  EXPECT_EQ(parse_config_file_value(config_file_value("")), std::optional<std::string>(""));
+  EXPECT_FALSE(parse_config_file_value("\"unclosed"));
+  EXPECT_FALSE(parse_config_file_value("two words"));
 }
 
 TEST_F(AclTest, ConfigRewriteReplacesSlaveofLines) {

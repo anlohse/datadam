@@ -71,6 +71,14 @@ void AclUser::set_all_commands(bool allow) {
 
 std::string AclUser::apply(std::string_view rule) {
   if (rule.empty()) return "Syntax error";
+  // Rules are written back space-separated (ACL LIST, CONFIG REWRITE): only a
+  // password (hashed when written) may hold spaces, and nothing control characters.
+  for (char c : rule) {
+    bool space = c == ' ';
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f || (space && rule[0] != '>' && rule[0] != '<')) {
+      return "Syntax error";
+    }
+  }
   std::string lower = to_lower(rule);
   if (lower == "on") {
     enabled = true;
@@ -145,6 +153,11 @@ std::string AclUser::apply(std::string_view rule) {
         std::erase_if(sub_allowed, [&](const std::string& s) { return s.starts_with(command + "|"); });
         std::erase_if(sub_denied, [&](const std::string& s) { return s.starts_with(command + "|"); });
       }
+      for (const auto& [sub, categories] : subcommand_categories()) {
+        if ((categories & cat->second) == 0) continue;
+        (allow ? sub_denied : sub_allowed).erase(std::string(sub));
+        (allow ? sub_allowed : sub_denied).insert(std::string(sub));
+      }
     } else if (size_t bar = what.find('|'); bar != std::string::npos) {
       std::string parent = what.substr(0, bar);
       if (!find_command(parent) || !has_subcommands(parent) || bar + 1 == what.size()) {
@@ -202,8 +215,15 @@ std::string AclUser::describe() const {
 bool AclUser::password_ok(std::string_view password) const {
   if (nopass) return true;
   std::string hash = sha256_hex(password);
+  // Every byte of every one: how long it takes says nothing of the hashes.
   bool ok = false;
-  for (const auto& h : passwords) ok |= h == hash;  // look at all of them: no early exit
+  for (const auto& h : passwords) {
+    unsigned char diff = h.size() == hash.size() ? 0 : 1;
+    for (size_t i = 0; i < h.size() && i < hash.size(); ++i) {
+      diff |= static_cast<unsigned char>(h[i] ^ hash[i]);
+    }
+    ok |= diff == 0;
+  }
   return ok;
 }
 

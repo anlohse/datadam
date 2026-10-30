@@ -117,7 +117,7 @@ void cmd_cdc_read(Cmd& c) {
   if (r.batches.empty() && block_ms && client.can_block) {
     int64_t now = steady_time_ms();
     if (!resuming) {
-      client.block_deadline_ms = *block_ms == 0 ? std::numeric_limits<int64_t>::max() : now + *block_ms;
+      client.block_deadline_ms = *block_ms == 0 ? std::numeric_limits<int64_t>::max() : deadline_after(now, *block_ms);
     }
     if (now < client.block_deadline_ms) {
       client.block_from = r.next;

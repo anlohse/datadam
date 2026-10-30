@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -122,6 +123,10 @@ struct Config {
   // BGSAVE only flushes, like SAVE) and keeps the newest backup_keep (0: all).
   std::string backup_dir;
   unsigned backup_keep = 7;
+  // As in Redis 7: whether clients may choose where the server writes
+  // (CONFIG SET backup-dir, BACKUP to any path). no: only inside backup-dir
+  // as the config file set it; local: from loopback connections too; yes.
+  std::string enable_protected_configs = "no";
   // SLOWLOG: commands that take at least this many microseconds (-1: none, 0: all).
   int64_t slowlog_log_slower_than = 10000;
   unsigned slowlog_max_len = 128;
@@ -146,6 +151,12 @@ struct Config {
 
 // io-threads auto for a machine with `cpus` CPUs.
 unsigned auto_io_threads(unsigned cpus);
+
+// A value as a config file line holds it: as is, or in double quotes (with
+// \" and \\ escaped) when it has spaces, quotes or backslashes, or is empty.
+std::string config_file_value(std::string_view value);
+// The value part of a config file line, either way; nothing if it is not one value.
+std::optional<std::string> parse_config_file_value(std::string_view text);
 
 std::string_view fsync_policy_name(FsyncPolicy p);
 std::string_view write_path_name(WritePath p);

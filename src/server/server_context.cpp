@@ -94,18 +94,35 @@ void start_session(ServerContext& ctx, ClientState& client) {
   client.authenticated = client.user != nullptr;
 }
 
+namespace {
+
+bool is_loopback(std::string_view ip) {
+  asio::error_code ec;
+  asio::ip::address addr = asio::ip::make_address(std::string(ip), ec);
+  if (ec) return false;
+  if (addr.is_v6() && addr.to_v6().is_v4_mapped()) {
+    addr = asio::ip::make_address_v4(asio::ip::v4_mapped, addr.to_v6());
+  }
+  return addr.is_loopback();
+}
+
+}  // namespace
+
 bool protected_mode_refuses(const ServerContext& ctx, std::string_view peer, bool verified_certificate) {
   if (!ctx.protected_mode.load(std::memory_order_relaxed) || ctx.auth_required.load(std::memory_order_relaxed)) {
     return false;
   }
   if (verified_certificate) return false;
-  asio::error_code ec;
-  asio::ip::address addr = asio::ip::make_address(std::string(peer), ec);
-  if (ec) return true;
-  if (addr.is_v6() && addr.to_v6().is_v4_mapped()) {
-    addr = asio::ip::make_address_v4(asio::ip::v4_mapped, addr.to_v6());
-  }
-  return !addr.is_loopback();
+  return !is_loopback(peer);
+}
+
+bool protected_configs_allowed(const ServerContext& ctx, const ClientState& client) {
+  // Fixed at startup: read without the settings' lock.
+  const std::string& setting = ctx.config.enable_protected_configs;
+  if (setting == "yes") return true;
+  if (setting != "local") return false;
+  std::string_view ip = std::string_view(client.addr).substr(0, client.addr.rfind(':'));  // "ip:port"
+  return is_loopback(ip);
 }
 
 Config ServerContext::settings() const {
@@ -221,6 +238,16 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   return {};
 }
 
+namespace {
+
+// replicaof's "host port" is written as Redis writes it; other values quoted
+// when they need it.
+std::string config_line(const std::string& key, const std::string& value) {
+  return key + " " + (key == "replicaof" ? value : config_file_value(value));
+}
+
+}  // namespace
+
 std::string ServerContext::rewrite_config() {
   std::lock_guard lock(config_mu_);
   const std::string& path = mutable_config_.config_file;
@@ -267,11 +294,13 @@ std::string ServerContext::rewrite_config() {
       out.push_back(std::move(line));
       continue;
     }
-    if (done.insert(key).second && !it->second.empty()) out.push_back(key + " " + it->second);
+    if (done.insert(key).second && !it->second.empty()) out.push_back(config_line(key, it->second));
   }
   std::vector<std::string> added;
   for (const auto& [key, value] : mutable_config_.dump()) {
-    if (!done.contains(key) && !value.empty() && value != defaults[key]) added.push_back(key + " " + value);
+    if (!done.contains(key) && !value.empty() && value != defaults[key]) {
+      added.push_back(config_line(key, value));
+    }
   }
   if (!users_written) added.insert(added.end(), user_lines.begin(), user_lines.end());
   if (!added.empty()) {
@@ -289,7 +318,10 @@ std::string ServerContext::rewrite_config() {
     f.flush();
     if (!f) return "ERR Rewriting config file: write failed";
   }
+  // With the file's own permissions: it may hold passwords (requirepass, masterauth).
   std::error_code ec;
+  auto perms = std::filesystem::status(path, ec).permissions();
+  if (!ec) std::filesystem::permissions(tmp, perms, ec);
   std::filesystem::rename(tmp, path, ec);
   if (ec) return std::format("ERR Rewriting config file: {}", ec.message());
   log_info("CONFIG REWRITE: {}", path);

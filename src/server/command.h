@@ -103,6 +103,9 @@ struct CommandMeta {
   KeyRange keys[2];
 };
 const CommandMeta* command_meta(std::string_view name);
+// Subcommands ("client|kill") whose categories are not their command's: a
+// category rule (+@admin, -@dangerous) applies to them on their own.
+const std::vector<std::pair<std::string_view, uint32_t>>& subcommand_categories();
 
 // All commands, by lower-case name.
 const std::unordered_map<std::string, CommandSpec>& all_commands();

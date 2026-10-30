@@ -161,7 +161,10 @@ std::optional<std::string> json_return_value(const IndexDef& def, const Json& do
 SearchResult Database::search(const IndexRegistry::Ptr& index, const SearchNode& query, const SearchOptions& opts) {
   const IndexDef& def = index->def;
   SearchResult result;
-  size_t want = static_cast<size_t>(std::max<int64_t>(opts.offset, 0) + std::max<int64_t>(opts.limit, 0));
+  // Saturating: a huge OFFSET plus LIMIT must not wrap around.
+  uint64_t offset = static_cast<uint64_t>(std::max<int64_t>(opts.offset, 0));
+  uint64_t limit = static_cast<uint64_t>(std::max<int64_t>(opts.limit, 0));
+  size_t want = static_cast<size_t>(std::min<uint64_t>(offset + limit, uint64_t{1} << 62));
 
   commit_active_batch();  // this client's own writes must be visible
   auto snapshot = storage_.snapshot();

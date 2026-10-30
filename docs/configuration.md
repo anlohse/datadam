@@ -45,9 +45,11 @@ like `datadam: datadam.conf:7: invalid value 'x' for 'port'`, `datadam: unknown 
 - One setting per line: the option name, whitespace, the value. Option names are case-insensitive.
 - A line whose first non-blank character is `#` is a comment. Blank lines are ignored. Windows line endings
   are accepted.
-- A setting line must have exactly two words. There are no inline comments (`port 6379 # main` is an error,
-  `expected 'key value'`) and no quoting, so a value cannot contain spaces. Lists use commas
-  (`tls-protocols TLSv1.2,TLSv1.3`).
+- A setting line must have exactly two words, or the option and one value in double quotes, which may hold
+  spaces (`backup-dir "/mnt/my backups"`; `\"` and `\\` inside stand for `"` and `\`). `CONFIG REWRITE`
+  writes values that need it that way. There are no inline comments (`port 6379 # main` is an error,
+  `expected 'key value'`). Lists use commas (`tls-protocols TLSv1.2,TLSv1.3`). No value may contain control
+  characters (line breaks, tabs...).
 - Two exceptions take more words: `replicaof <host> <port>` (or `slaveof`) and `user <name> <rule>...`.
 - When an option appears twice, the later line wins. `user` lines accumulate: each one defines a user.
 
@@ -107,7 +109,8 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 | `rocksdb-block-cache` | size | `64mb` | yes | Capacity of RocksDB's LRU block cache, shared by all column families. Index and filter blocks also live in it (in a high-priority half). This is what serves values larger than `cache-max-object-size` and collection elements from memory. |
 | `rocksdb-write-buffer` | size | `64mb` | yes | Size of one memtable, per column family. Up to 4 memtables per column family can exist while flushes catch up, in each of the 4 column families. It also bounds the live WAL, what a restart replays, at 8 times this. |
 | `rocksdb-background-jobs` | 1–256 | `4` | no | RocksDB background flush and compaction threads. |
-| `backup-dir` | path | empty | yes | Where `BGSAVE` writes its backups (RocksDB checkpoints), one directory per call named `yyyymmdd-hhmmss` (UTC). Empty: `BGSAVE` only flushes, like `SAVE`. See [Operations](operations.md#backups). |
+| `backup-dir` | path | empty | yes (protected) | Where `BGSAVE` writes its backups (RocksDB checkpoints), one directory per call named `yyyymmdd-hhmmss` (UTC), and where `BACKUP` writes. Empty: `BGSAVE` only flushes, like `SAVE`. `CONFIG SET` may change it only where `enable-protected-configs` allows. See [Operations](operations.md#backups). |
+| `enable-protected-configs` | `no`, `yes`, `local` | `no` | no | As in Redis 7: whether clients may choose where the server writes files. `no`: `CONFIG SET backup-dir` is refused (`ERR CONFIG SET failed (possibly related to argument 'backup-dir') - can't set protected config`) and `BACKUP <path>` writes only inside `backup-dir`. `local`: allowed from loopback connections. `yes`: allowed from any. |
 | `backup-keep` | 0–100000 | `7` | yes | After a `BGSAVE`, only this many of the newest backups in `backup-dir` are kept; `0` keeps them all. |
 
 Every write reaches the WAL before its reply is sent, whatever the `fsync` mode, so a crash of the process

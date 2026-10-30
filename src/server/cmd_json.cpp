@@ -22,6 +22,7 @@ namespace datadam {
 
 namespace {
 
+constexpr size_t kMaxStringSize = 512ULL << 20;  // as APPEND's
 constexpr std::string_view kNoKey = "ERR could not perform this operation on a key that doesn't exist";
 
 std::optional<JsonPath> path_arg(Cmd& c, std::string_view text) {
@@ -405,6 +406,7 @@ void cmd_json_strappend(Cmd& c) {
   if (!value) return;
   if (!value->is_string()) return c.r.error("ERR the value to append must be a JSON string");
   std::vector<std::optional<int64_t>> lengths;
+  bool too_big = false;
   Doc d = update_doc(c, c.args[1], [&](std::optional<Json>& doc) {
     if (!doc) return Change::None;
     for (auto& m : path->select(*doc)) {
@@ -413,11 +415,17 @@ void cmd_json_strappend(Cmd& c) {
         continue;
       }
       auto& s = m.value->get_ref<std::string&>();
+      // As APPEND: a string grows to 512 MB at most.
+      if (s.size() + value->get_ref<const std::string&>().size() > kMaxStringSize) {
+        too_big = true;
+        return Change::None;
+      }
       s += value->get_ref<const std::string&>();
       lengths.push_back(static_cast<int64_t>(s.size()));
     }
     return Change::Store;
   });
+  if (too_big) return c.r.error("ERR string exceeds maximum allowed size (proto-max-bulk-len)");
   if (wrong_or_missing(c, d)) return;
   reply_ints(c, *path, lengths, "ERR the value at the path is not a string");
 }

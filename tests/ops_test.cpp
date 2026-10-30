@@ -176,6 +176,12 @@ TEST_F(Ops, BackupIsAConsistentCopy) {
   text({"HSET", "h", "f1", "a", "f2", "b"});
   text({"JSON.SET", "j", "$", R"({"n":1})"});
   fs::path copy = root_ / "copies" / "one";
+  // Where the server writes is not the client's to choose, unless
+  // enable-protected-configs says so (as in Redis 7).
+  EXPECT_NE(text({"BACKUP", copy.string()}).find("backup-dir"), std::string::npos);
+  EXPECT_NE(text({"CONFIG", "SET", "backup-dir", root_.string()}).find("can't set protected config"),
+            std::string::npos);
+  db_->config.enable_protected_configs = "yes";
   EXPECT_EQ(text({"BACKUP", copy.string()}), "OK");
   EXPECT_TRUE(run({"BACKUP", copy.string()}).error);  // the target must not exist
   EXPECT_EQ(persistence("last_backup_path"), copy.string());
@@ -202,6 +208,17 @@ TEST_F(Ops, BackupIsAConsistentCopy) {
   size_t kept = 0;
   for (const auto& e : fs::directory_iterator(dir)) kept += e.is_directory() ? 1 : 0;
   EXPECT_EQ(kept, 2u);  // the oldest went
+
+  // Protected: BACKUP inside backup-dir only.
+  db_->config.enable_protected_configs = "no";
+  EXPECT_EQ(text({"BACKUP", "named"}), "OK");
+  EXPECT_TRUE(fs::exists(dir / "named"));
+  EXPECT_EQ(text({"BACKUP", (dir / "sub" / "abs").string()}), "OK");
+  for (const std::string& outside : {std::string("../escape"), (root_ / "elsewhere").string(), dir.string(),
+                                     std::string("sub/../../escape")}) {
+    EXPECT_NE(text({"BACKUP", outside}).find("not inside backup-dir"), std::string::npos) << outside;
+  }
+  EXPECT_FALSE(fs::exists(root_ / "escape"));
 }
 
 TEST_F(Ops, SlowlogRecordsAndRedacts) {

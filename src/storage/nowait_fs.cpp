@@ -10,7 +10,6 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #endif
 
 namespace datadam {
@@ -117,16 +116,17 @@ class NoWaitFileSystem : public rocksdb::FileSystemWrapper {
 
 bool nowait_reads_work(const std::string& dir) {
   std::filesystem::path probe = std::filesystem::path(dir) / "nowait-check";
-  std::ofstream(probe) << "datadam";
-  int fd = ::open(probe.c_str(), O_RDONLY | O_CLOEXEC);
+  std::error_code ignored;
+  std::filesystem::remove(probe, ignored);  // left by a crash
+  // A file of its own: never through a link someone left in its place.
+  int fd = ::open(probe.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   bool works = false;
   if (fd >= 0) {
-    char c;
+    char c = 'd';
     iovec v{&c, 1};
-    works = ::preadv2(fd, &v, 1, 0, RWF_NOWAIT) == 1 || errno == EAGAIN;
+    works = ::pwrite(fd, &c, 1, 0) == 1 && (::preadv2(fd, &v, 1, 0, RWF_NOWAIT) == 1 || errno == EAGAIN);
     ::close(fd);
   }
-  std::error_code ignored;
   std::filesystem::remove(probe, ignored);
   return works;
 }

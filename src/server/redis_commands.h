@@ -217,6 +217,9 @@ void start_session(ServerContext& ctx, ClientState& client);
 // the default user needs no password, unless it comes from the loopback
 // interface. A TLS connection with a verified client certificate passes too.
 bool protected_mode_refuses(const ServerContext& ctx, std::string_view peer, bool verified_certificate = false);
+// enable-protected-configs: whether this client may choose where the server
+// writes (CONFIG SET backup-dir, BACKUP outside backup-dir).
+bool protected_configs_allowed(const ServerContext& ctx, const ClientState& client);
 inline constexpr std::string_view kProtectedModeError =
     "DENIED datadam is running in protected mode because protected mode is enabled and no password is set for "
     "the default user. In this mode connections are only accepted from the loopback interface. To accept "

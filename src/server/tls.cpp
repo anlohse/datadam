@@ -36,6 +36,9 @@ std::shared_ptr<TlsContext> TlsContext::create(const Config& cfg, std::string* e
   asio::ssl::context& ctx = *t->ctx_;
   SSL_CTX* native = ctx.native_handle();
   ctx.set_options(asio::ssl::context::default_workarounds | asio::ssl::context::single_dh_use);
+  // As Redis: a client may not renegotiate (each one costs a handshake's CPU).
+  // OpenSSL 3 refuses it by default; this keeps it so with 1.1.
+  SSL_CTX_set_options(native, SSL_OP_NO_RENEGOTIATION);
 
   // Allowed versions: the lowest and highest of tls-protocols.
   bool v12 = cfg.tls_protocols.find("TLSv1.2") != std::string::npos;

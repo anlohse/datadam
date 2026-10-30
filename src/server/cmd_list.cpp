@@ -209,7 +209,7 @@ void cmd_lrem(Cmd& c) {
         if (!t.exists()) return;
         Elements all = read_all(t);
         std::vector<bool> drop(all.size(), false);
-        int64_t limit = *count == 0 ? INT64_MAX : (*count > 0 ? *count : -*count);
+        int64_t limit = *count == 0 || *count == INT64_MIN ? INT64_MAX : (*count > 0 ? *count : -*count);
         if (*count >= 0) {
           for (size_t i = 0; i < all.size() && removed < limit; ++i) {
             if (all[i] == element) drop[i] = true, ++removed;

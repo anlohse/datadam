@@ -84,8 +84,42 @@ std::string_view write_path_name(WritePath p) {
   return "?";
 }
 
+std::string config_file_value(std::string_view value) {
+  if (!value.empty() && value.find_first_of(" \t\"\\") == std::string_view::npos) return std::string(value);
+  std::string out = "\"";
+  for (char c : value) {
+    if (c == '"' || c == '\\') out.push_back('\\');
+    out.push_back(c);
+  }
+  return out + "\"";
+}
+
+std::optional<std::string> parse_config_file_value(std::string_view text) {
+  if (text.empty() || text.front() != '"') {
+    auto tokens = split_ws(text);
+    if (tokens.size() != 1) return std::nullopt;
+    return std::string(tokens[0]);
+  }
+  std::string out;
+  size_t i = 1;
+  for (; i < text.size() && text[i] != '"'; ++i) {
+    if (text[i] == '\\' && i + 1 < text.size()) ++i;
+    out.push_back(text[i]);
+  }
+  if (i >= text.size()) return std::nullopt;  // no closing quote
+  if (!split_ws(text.substr(i + 1)).empty()) return std::nullopt;
+  return out;
+}
+
 std::string Config::set(std::string_view key_in, std::string_view value) {
   std::string key = to_lower(key_in);
+  // A config file line holds one option: a line break in a value would let
+  // CONFIG REWRITE write lines of the client's choosing.
+  for (char c : value) {
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) {
+      return std::format("{} cannot contain control characters", key);
+    }
+  }
   if (key == "bind") {
     bind = std::string(value);
     return {};
@@ -126,6 +160,12 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     std::string v = to_lower(value);
     if (v != "yes" && v != "no" && v != "optional") return bad_value(key, value);
     tls_auth_clients = v;
+    return {};
+  }
+  if (key == "enable-protected-configs") {
+    std::string v = to_lower(value);
+    if (v != "yes" && v != "no" && v != "local") return bad_value(key, value);
+    enable_protected_configs = v;
     return {};
   }
   if (key == "tls-auth-clients-user") {
@@ -277,7 +317,8 @@ std::string Config::load_file(const std::string& path) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     auto tokens = split_ws(line);
     if (tokens.empty() || tokens[0].front() == '#') continue;
-    if ((to_lower(tokens[0]) == "replicaof" || to_lower(tokens[0]) == "slaveof") && tokens.size() == 3) {  // host port
+    if ((to_lower(tokens[0]) == "replicaof" || to_lower(tokens[0]) == "slaveof") && tokens.size() == 3 &&
+        tokens[1].front() != '"') {  // host port
       if (auto err = set(tokens[0], line.substr(static_cast<size_t>(tokens[1].data() - line.data()))); !err.empty()) {
         return std::format("{}:{}: {}", path, lineno, err);
       }
@@ -287,8 +328,11 @@ std::string Config::load_file(const std::string& path) {
       users.emplace_back(line.substr(static_cast<size_t>(tokens[1].data() - line.data())));
       continue;
     }
-    if (tokens.size() != 2) return std::format("{}:{}: expected 'key value'", path, lineno);
-    if (auto err = set(tokens[0], tokens[1]); !err.empty()) return std::format("{}:{}: {}", path, lineno, err);
+    // key value, or key "a value" (CONFIG REWRITE quotes values with spaces).
+    if (tokens.size() < 2) return std::format("{}:{}: expected 'key value'", path, lineno);
+    auto value = parse_config_file_value(std::string_view(line).substr(static_cast<size_t>(tokens[1].data() - line.data())));
+    if (!value) return std::format("{}:{}: expected 'key value'", path, lineno);
+    if (auto err = set(tokens[0], *value); !err.empty()) return std::format("{}:{}: {}", path, lineno, err);
   }
   return {};
 }
@@ -347,6 +391,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-ciphersuites", tls_ciphersuites},
       {"tls-replication", tls_replication ? "yes" : "no"},
       {"protected-mode", protected_mode ? "yes" : "no"},
+      {"enable-protected-configs", enable_protected_configs},
       {"maxclients", std::to_string(maxclients)},
       {"client-query-buffer-limit", format_size(client_query_buffer_limit)},
       {"tcp-keepalive", std::to_string(tcp_keepalive)},

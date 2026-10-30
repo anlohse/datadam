@@ -118,6 +118,12 @@ void cmd_auth(Cmd& c) {
   if (authenticate(c, user, c.args.back())) c.r.ok();
 }
 
+// What CLIENT LIST shows of a connection, space-separated: as in Redis, only
+// printable characters and no spaces, or a client could forge entries.
+bool printable_word(std::string_view s) {
+  return std::all_of(s.begin(), s.end(), [](char ch) { return ch > ' ' && ch < 0x7f; });
+}
+
 void cmd_hello(Cmd& c) {
   int proto = c.client.proto;
   size_t i = 1;
@@ -137,6 +143,9 @@ void cmd_hello(Cmd& c) {
       i += 2;
     } else if (opt == "setname" && i + 1 < c.args.size()) {
       name = std::string(c.args[++i]);
+      if (!printable_word(*name)) {
+        return c.r.error("ERR Client names cannot contain spaces, newlines or special characters.");
+      }
     } else {
       return c.r.error(kSyntax);
     }
@@ -268,7 +277,7 @@ void client_kill(Cmd& c) {
 void cmd_client(Cmd& c) {
   std::string sub = to_lower(c.args[1]);
   if (sub == "setname" && c.args.size() == 3) {
-    if (c.args[2].find_first_of(" \n") != std::string_view::npos) {
+    if (!printable_word(c.args[2])) {
       return c.r.error("ERR Client names cannot contain spaces, newlines or special characters.");
     }
     c.client.name = std::string(c.args[2]);
@@ -281,6 +290,9 @@ void cmd_client(Cmd& c) {
   if (sub == "id" && c.args.size() == 2) return c.r.integer(static_cast<int64_t>(c.client.id));
   if (sub == "setinfo" && c.args.size() == 4) {
     std::string attr = to_lower(c.args[2]);
+    if (!printable_word(c.args[3])) {
+      return c.r.error(std::format("ERR {} cannot contain spaces, newlines or special characters.", attr));
+    }
     if (attr == "lib-name") c.client.lib_name = std::string(c.args[3]);
     else if (attr == "lib-ver") c.client.lib_ver = std::string(c.args[3]);
     else return c.r.error(std::format("ERR Unrecognized option '{}'", c.args[2]));
@@ -354,7 +366,13 @@ void cmd_config(Cmd& c) {
       return c.r.error("ERR wrong number of arguments for 'config|set' command");
     }
     std::vector<std::pair<std::string_view, std::string_view>> pairs;
-    for (size_t i = 2; i < c.args.size(); i += 2) pairs.emplace_back(c.args[i], c.args[i + 1]);
+    for (size_t i = 2; i < c.args.size(); i += 2) {
+      if (iequals(c.args[i], "backup-dir") && !protected_configs_allowed(c.ctx, c.client)) {
+        return c.r.error(std::format(
+            "ERR CONFIG SET failed (possibly related to argument '{}') - can't set protected config", c.args[i]));
+      }
+      pairs.emplace_back(c.args[i], c.args[i + 1]);
+    }
     std::string error = c.ctx.set_config(pairs);
     if (!error.empty()) return c.r.error(error);
     return c.r.ok();
@@ -1265,8 +1283,9 @@ bool block_for_keys(Cmd& c, std::span<const std::string_view> keys, double timeo
   if (!client.can_block) return false;
   int64_t now = steady_time_ms();
   if (client.block_deadline_ms == 0) {  // the first try; later ones keep the deadline
-    client.block_deadline_ms = timeout_s == 0 ? std::numeric_limits<int64_t>::max()
-                                              : now + std::max<int64_t>(1, std::llround(timeout_s * 1000));
+    double ms = timeout_s * 1000;
+    client.block_deadline_ms = timeout_s == 0 || ms >= 9e18 ? std::numeric_limits<int64_t>::max()
+                                                            : deadline_after(now, std::max<int64_t>(1, std::llround(ms)));
   }
   if (now >= client.block_deadline_ms) return false;
   auto waiter = std::make_shared<KeyWatch::Waiter>();
