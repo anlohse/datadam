@@ -69,9 +69,12 @@ class Client {
   }
 
   Value run(const std::vector<std::string>& args) {
-    std::string out = std::format("*{}\r\n", args.size());
-    for (const auto& a : args) out += std::format("${}\r\n{}\r\n", a.size(), a);
-    asio::write(socket_, asio::buffer(out));
+    send(args);
+    return receive();
+  }
+
+  // The next reply.
+  Value receive() {
     for (;;) {
       std::string_view view = buf_;
       Value v;
@@ -91,8 +94,9 @@ class Client {
   void send(const std::vector<std::string>& args) {
     std::string out = std::format("*{}\r\n", args.size());
     for (const auto& a : args) out += std::format("${}\r\n{}\r\n", a.size(), a);
-    asio::write(socket_, asio::buffer(out));
+    send_raw(out);
   }
+  void send_raw(std::string_view bytes) { asio::write(socket_, asio::buffer(bytes)); }
 
  private:
   asio::io_context io_;
@@ -532,6 +536,55 @@ TEST_F(ReplicationTest, AReplicationUserCannotTakeThePrimaryOver) {
   // Nor can an acknowledgment claim writes that were not sent yet.
   EXPECT_EQ(p.text({"SET", "b", "2"}), "OK");
   EXPECT_EQ(p.text({"WAIT", "1", "300"}), "0");
+}
+
+// Connection limits (any server will do: these use the replication tests' Node).
+TEST(ServerLimitsTest, MaxclientsQueryBufferAndTrickledRequests) {
+  fs::path dir = fs::temp_directory_path() / ("datadam_limits_" + std::to_string(std::random_device{}()));
+  {
+    Node node(dir, 0);
+    Client admin(node.port());
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "maxclients", "2"}), "OK");
+    Client second(node.port());
+    EXPECT_EQ(second.text({"PING"}), "PONG");
+    Client third(node.port());
+    EXPECT_EQ(third.text({"PING"}), "ERR max number of clients reached");
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "maxclients", "10000"}), "OK");
+    std::string stats = admin.text({"INFO", "stats"});
+    EXPECT_NE(stats.find("rejected_connections:1\r\n"), std::string::npos) << stats;
+
+    // A request that grows past client-query-buffer-limit closes the connection.
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "client-query-buffer-limit", "1mb"}), "OK");
+    EXPECT_TRUE(admin.run({"CONFIG", "SET", "client-query-buffer-limit", "1000"}).error);  // below 1mb
+    Client big(node.port());
+    big.send_raw("*1\r\n$3000000\r\n");
+    big.send_raw(std::string(1200000, 'x'));
+    Value v = big.receive();
+    EXPECT_TRUE(v.error);
+    EXPECT_EQ(v.text, "ERR Protocol error: client query buffer limit reached");
+
+    // A million arguments trickling in a few bytes at a time: each read used
+    // to walk every argument received so far again.
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "client-query-buffer-limit", "1gb"}), "OK");
+    Client slow(node.port());
+    constexpr int kArgs = 200000;
+    slow.send_raw(std::format("*{}\r\n$4\r\nMSET\r\n", kArgs + 1));
+    std::string arg = "$1\r\nx\r\n";
+    auto start = std::chrono::steady_clock::now();
+    std::string chunk;
+    for (int i = 0; i < kArgs; ++i) {
+      chunk += arg;
+      if (chunk.size() >= 70) {  // ten arguments per write
+        slow.send_raw(chunk);
+        chunk.clear();
+      }
+    }
+    slow.send_raw(chunk);
+    EXPECT_EQ(slow.text({"PING"}), "OK");  // MSET's reply; then PING's
+    EXPECT_EQ(slow.receive().text, "PONG");
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(20));
+  }
+  fs::remove_all(dir);
 }
 
 TEST_F(ReplicationTest, FunctionsFollowThePrimary) {

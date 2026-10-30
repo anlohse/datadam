@@ -44,6 +44,13 @@ struct Config {
   // only loopback clients may connect (TLS clients with a verified
   // certificate too).
   bool protected_mode = true;
+  // Limits, as in Redis: a connection past maxclients is refused; a client
+  // whose unparsed input passes client-query-buffer-limit is closed; idle
+  // connections are probed every tcp-keepalive seconds (0: never), so a
+  // vanished peer's connection does not stay forever.
+  unsigned maxclients = 10000;
+  uint64_t client_query_buffer_limit = 1ULL << 30;
+  unsigned tcp_keepalive = 300;
   std::string tls_client_cert_file;
   std::string tls_client_key_file;
   // 0: auto (io_thread_count). Cloud phase 4, in memory with 800 connections:

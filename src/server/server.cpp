@@ -4,6 +4,9 @@
 #include <asio/ssl.hpp>
 #include <csignal>
 #include <format>
+#ifndef _WIN32
+#include <netinet/tcp.h>
+#endif
 #include <limits>
 #include <optional>
 
@@ -33,6 +36,21 @@ constexpr int kMaxPrefetchCommands = 256;
 // While a command is blocked (BLPOP...), requests the client sends are kept
 // up to this much; past it the connection is no longer watched for them.
 constexpr size_t kMaxInputWhileBlocked = 1 << 20;
+
+// tcp-keepalive: probes an idle connection after `seconds`, then every
+// third of that, and drops it after 3 unanswered probes (as Redis does), so a
+// peer that vanished does not hold its connection forever.
+void set_keepalive(tcp::socket& socket, unsigned seconds) {
+  asio::error_code ignored;
+  if (seconds == 0) return;
+  socket.set_option(asio::socket_base::keep_alive(true), ignored);
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+  int idle = static_cast<int>(seconds), interval = std::max(1, idle / 3), count = 3;
+  socket.set_option(asio::detail::socket_option::integer<IPPROTO_TCP, TCP_KEEPIDLE>(idle), ignored);
+  socket.set_option(asio::detail::socket_option::integer<IPPROTO_TCP, TCP_KEEPINTVL>(interval), ignored);
+  socket.set_option(asio::detail::socket_option::integer<IPPROTO_TCP, TCP_KEEPCNT>(count), ignored);
+#endif
+}
 
 // Counts a connection for INFO / stats for as long as the session lives.
 class ConnectionScope {
@@ -372,7 +390,27 @@ asio::io_context& Server::connection_context() {
   return *contexts_[pick + 1];
 }
 
+bool Server::too_many_clients() const {
+  if (ctx_.stats.connected_clients.load(std::memory_order_relaxed) <= ctx_.maxclients.load(std::memory_order_relaxed)) {
+    return false;
+  }
+  ctx_.stats.rejected_connections.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
 asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto) {
+  // Out of file descriptors (EMFILE), the listener stays readable: pause
+  // instead of spinning on it (and on the log), until connections close.
+  asio::steady_timer backoff(co_await asio::this_coro::executor);
+  int64_t last_logged_ms = 0;
+  auto failed = [&](const asio::error_code& ec) -> asio::awaitable<void> {
+    if (int64_t now = steady_time_ms(); now - last_logged_ms >= 10'000) {
+      last_logged_ms = now;
+      log_warn("accept failed: {}", ec.message());
+    }
+    backoff.expires_after(std::chrono::milliseconds(100));
+    co_await backoff.async_wait(kUseAwaitable);
+  };
   // The socket of a connection is made on its context: a socket completes its
   // operations on the context it belongs to, not on the handler's.
 #ifdef _WIN32
@@ -384,7 +422,7 @@ asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto
     auto [ec, accepted] = co_await acceptor.async_accept(io, kUseAwaitable);
     if (ec == asio::error::operation_aborted) co_return;
     if (ec) {
-      log_warn("accept failed: {}", ec.message());
+      co_await failed(ec);
       continue;
     }
     tcp::socket socket(std::move(accepted));
@@ -399,12 +437,13 @@ asio::awaitable<void> Server::accept_loop(tcp::acceptor acceptor, Protocol proto
     if (!ec) acceptor.accept(socket, ec);
     if (ec == asio::error::would_block || ec == asio::error::try_again) continue;
     if (ec) {
-      log_warn("accept failed: {}", ec.message());
+      co_await failed(ec);
       continue;
     }
 #endif
     asio::error_code ignored;
     socket.set_option(tcp::no_delay(true), ignored);
+    set_keepalive(socket, ctx_.tcp_keepalive.load(std::memory_order_relaxed));
     // Each connection runs on its own strand: its operations never run
     // concurrently (others post to it: wake-ups, kills).
     auto strand = asio::make_strand(io);
@@ -423,6 +462,11 @@ asio::awaitable<void> Server::redis_session(tcp::socket socket) {
   client.id = ctx_.stats.next_client_id.fetch_add(1, std::memory_order_relaxed) + 1;
   start_session(ctx_, client);
   client.addr = peer_address(socket);
+  if (too_many_clients()) {
+    std::string reply = std::format("-{}\r\n", kMaxClientsError);
+    co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
   if (protected_mode_refuses(ctx_, peer_ip(socket))) {
     log_debug("redis client {} from {} refused: protected mode", client.id, client.addr);
     std::string reply = std::format("-{}\r\n", kProtectedModeError);
@@ -458,6 +502,11 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
     co_return;
   }
   ctx_.stats.tls_connections.fetch_add(1, std::memory_order_relaxed);
+  if (too_many_clients()) {
+    std::string reply = std::format("-{}\r\n", kMaxClientsError);
+    co_await asio::async_write(stream, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
   if (protected_mode_refuses(ctx_, ip, !verified_peer_cn(stream.native_handle()).empty())) {
     log_debug("TLS client {} refused: protected mode", addr);
     std::string reply = std::format("-{}\r\n", kProtectedModeError);
@@ -609,6 +658,7 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
     client.can_block = true;
     ReadPool* pool = ctx_.read_pool;
     bool defer = pool != nullptr;  // for the next command
+    size_t pending = 0;  // the incomplete request at pos cannot end before this many bytes (RespParser's need)
     while (!client.close_after_reply && co_await read_more(socket, in, NetInput{&ctx_.stats})) {
       size_t pos = 0;
       bool more = true;
@@ -622,11 +672,21 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
           Database::WriteBatchScope batch(ctx_.db, ctx_.write_batching);
           for (;;) {
             size_t start = pos;
-            auto st = RespParser::parse(in, pos, args, error);
+            auto st = RespParser::Status::Incomplete;
+            if (in.size() - pos >= pending) {
+              size_t need = 0;
+              st = RespParser::parse(in, pos, args, error, &need);
+              pending = st == RespParser::Status::Incomplete ? need - pos : 0;
+            }
             if (st == RespParser::Status::Incomplete) {
-              // Before AUTH only small requests are accepted (as Redis does).
+              // Before AUTH only small requests are accepted (as Redis does),
+              // and after it up to client-query-buffer-limit.
               if (!client.authenticated && in.size() - pos > kMaxUnauthenticatedRequest) {
                 reply.error("ERR Protocol error: unauthenticated request too big");
+                client.close_after_reply = true;
+              } else if (in.size() - pos > ctx_.query_buffer_limit.load(std::memory_order_relaxed)) {
+                log_warn("client {} ({}) closed: its request passed client-query-buffer-limit", client.id, client.addr);
+                reply.error("ERR Protocol error: client query buffer limit reached");
                 client.close_after_reply = true;
               }
               break;
@@ -728,6 +788,11 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
 
 asio::awaitable<void> Server::memcache_session(tcp::socket socket) {
   ConnectionScope scope(ctx_.stats);
+  if (too_many_clients()) {
+    std::string reply = std::format("SERVER_ERROR {}\r\n", kMaxClientsError.substr(4));  // without "ERR "
+    co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
+    co_return;
+  }
   if (protected_mode_refuses(ctx_, peer_ip(socket))) {
     log_debug("memcache client {} refused: protected mode", peer_address(socket));
     std::string reply = std::format("SERVER_ERROR {}\r\n", kProtectedModeError.substr(7));  // without "DENIED "

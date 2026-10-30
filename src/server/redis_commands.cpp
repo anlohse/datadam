@@ -1361,13 +1361,15 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
   }
   if (want("stats")) {
     out += std::format(
-        "# Stats\r\ntotal_connections_received:{}\r\ntotal_commands_processed:{}\r\ninstantaneous_ops_per_sec:{}\r\n"
+        "# Stats\r\ntotal_connections_received:{}\r\nrejected_connections:{}\r\ntotal_commands_processed:{}\r\n"
+        "instantaneous_ops_per_sec:{}\r\n"
         "total_net_input_bytes:{}\r\ntotal_net_output_bytes:{}\r\ninstantaneous_input_kbps:{:.2f}\r\n"
         "instantaneous_output_kbps:{:.2f}\r\nkeyspace_hits:{}\r\nkeyspace_misses:{}\r\nevicted_keys:0\r\n"
         "total_error_replies:{}\r\nauth_failures:{}\r\n"
         "acl_access_denied:{}\r\ntls_connections:{}\r\ntls_handshake_failures:{}\r\ndeferred_reads:{}\r\nmemory_reads:{}\r\n"
         "page_cache_reads:{}\r\nread_pool_loads:{}\r\nread_pool_batches:{}\r\nread_pool_joined:{}\r\nread_pool_queued:{}\r\n\r\n",
-        ctx.stats.total_connections.load(), ctx.stats.total_commands(), ctx.stats.instantaneous_ops.load(),
+        ctx.stats.total_connections.load(), ctx.stats.rejected_connections.load(), ctx.stats.total_commands(),
+        ctx.stats.instantaneous_ops.load(),
         ctx.stats.total_net_input_bytes(), ctx.stats.total_net_output_bytes(),
         static_cast<double>(ctx.stats.instantaneous_input_bps.load()) / 1024,
         static_cast<double>(ctx.stats.instantaneous_output_bps.load()) / 1024, ctx.db.keyspace_hits(),

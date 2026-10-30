@@ -51,6 +51,8 @@ class Server {
   asio::awaitable<void> redis_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> redis_tls_session(asio::ip::tcp::socket socket);
   asio::awaitable<void> memcache_session(asio::ip::tcp::socket socket);
+  // maxclients: this connection (already counted) is one too many.
+  bool too_many_clients() const;
   // metrics-port: GET /metrics, /health and /ready over HTTP/1.x, one request
   // per connection, on the control context.
   asio::awaitable<void> metrics_loop(asio::ip::tcp::acceptor acceptor);

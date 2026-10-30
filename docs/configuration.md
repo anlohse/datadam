@@ -85,8 +85,11 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 
 | Option | Type | Default | Runtime | Description |
 |---|---|---|---|---|
-| `bind` | IP address | `0.0.0.0` | no | Address every listener binds to (Redis, TLS and memcache). One literal IPv4 or IPv6 address; host names are not resolved. |
+| `bind` | IP address | `0.0.0.0` | no | Address every listener binds to (Redis, TLS, memcache and metrics). One literal IPv4 or IPv6 address; host names are not resolved. |
 | `protected-mode` | boolean | `yes` (`no` in the Docker image) | yes | While the `default` user needs no password, refuse clients that are not on the loopback interface (TLS clients with a verified certificate pass). See [Security](security.md#protected-mode). |
+| `maxclients` | 1–1000000 | `10000` | yes | Most connections at once (Redis, TLS, memcache and replicas together). One more gets `ERR max number of clients reached` (memcache: `SERVER_ERROR`) and is closed; `INFO stats` counts them in `rejected_connections`. Keep it under the process's file-descriptor limit (`ulimit -n`): past that, new connections wait in the kernel until others close. |
+| `client-query-buffer-limit` | size, at least `1mb` | `1gb` | yes | Most input a client may send for one request that is not complete yet; past it the client gets `ERR Protocol error: client query buffer limit reached` and is closed. Before it authenticates, a client may send at most 16 KB. |
+| `tcp-keepalive` | seconds, 0–604800 | `300` | yes | TCP keepalive on client connections: an idle connection is probed after this long, then every third of it, and closed after three unanswered probes, so the connection of a peer that vanished does not stay forever. `0`: off. Applies to connections accepted after a change. |
 | `port` | 0–65535 | `6379` | no | Plain-text Redis protocol port. `0` disables it, which requires `tls-port`. |
 | `memcache-port` | 0–65535 | `11211` | no | memcache text protocol port. `0` disables it. |
 | `metrics-port` | 0–65535 | `0` | no | HTTP port for monitoring: `GET /metrics` (Prometheus text format), `/health` and `/ready`. `0` disables it. See [Metrics over HTTP](operations.md#metrics-over-http). |
@@ -287,7 +290,8 @@ The options it accepts are the ones marked "Runtime: yes" above: `fsync`, `write
 `rocksdb-block-cache`, `rocksdb-write-buffer`, `cache-min-memory`, `cache-max-idle`, `cache-max-age`,
 `cache-on-write`, `cache-admission`, `log-level`, `requirepass`, `acllog-max-len`, `masteruser`,
 `masterauth`, `backup-dir`, `backup-keep`, `slowlog-log-slower-than`, `slowlog-max-len`, `replica-priority`,
-`promotion-handoff`, `protected-mode`, and every `tls-*` option except `tls-port`.
+`promotion-handoff`, `protected-mode`, `maxclients`, `client-query-buffer-limit`, `tcp-keepalive`, and every
+`tls-*` option except `tls-port`.
 
 Errors:
 

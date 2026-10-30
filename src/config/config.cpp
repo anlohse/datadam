@@ -134,6 +134,13 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     tls_auth_clients_user = v;
     return {};
   }
+  if (key == "maxclients") return set_number<unsigned>(key, value, &maxclients, 1, 1000000);
+  if (key == "client-query-buffer-limit") {
+    // At least a megabyte, as in Redis: below that, ordinary requests would not fit.
+    if (auto v = parse_size(value); !v || *v < (1ULL << 20)) return bad_value(key, value);
+    return set_size(key, value, &client_query_buffer_limit);
+  }
+  if (key == "tcp-keepalive") return set_number<unsigned>(key, value, &tcp_keepalive, 0, 7 * 24 * 3600);
   if (key == "memcache-port") return set_number<uint16_t>(key, value, &memcache_port, 0, 65535);
   if (key == "metrics-port") return set_number<uint16_t>(key, value, &metrics_port, 0, 65535);
   if (key == "io-threads") {
@@ -340,6 +347,9 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-ciphersuites", tls_ciphersuites},
       {"tls-replication", tls_replication ? "yes" : "no"},
       {"protected-mode", protected_mode ? "yes" : "no"},
+      {"maxclients", std::to_string(maxclients)},
+      {"client-query-buffer-limit", format_size(client_query_buffer_limit)},
+      {"tcp-keepalive", std::to_string(tcp_keepalive)},
       {"tls-client-cert-file", tls_client_cert_file},
       {"tls-client-key-file", tls_client_key_file},
       {"replica-priority", std::to_string(replica_priority)},

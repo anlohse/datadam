@@ -32,6 +32,28 @@ TEST(RespParser, IncompleteAtEveryByte) {
   }
 }
 
+TEST(RespParser, IncompleteSaysHowMuchMoreItNeeds) {
+  std::vector<std::string_view> args;
+  std::string err;
+  size_t pos = 0, need = 0;
+  // Two arguments still to come: at least "$0\r\n\r\n" each.
+  std::string buf = "*3\r\n$3\r\nSET\r\n";
+  EXPECT_EQ(RespParser::parse(buf, pos, args, err, &need), RespParser::Status::Incomplete);
+  EXPECT_EQ(need, buf.size() + 12);
+  // Inside a bulk: its end, then the last argument.
+  buf += "$100\r\nab";
+  EXPECT_EQ(RespParser::parse(buf, pos, args, err, &need), RespParser::Status::Incomplete);
+  EXPECT_EQ(need, buf.size() - 2 + 102 + 6);
+  // A bulk header cut short: at least the smallest argument from there.
+  buf = "*1\r\n$10";
+  EXPECT_EQ(RespParser::parse(buf, pos, args, err, &need), RespParser::Status::Incomplete);
+  EXPECT_EQ(need, 4u + 6);
+  EXPECT_EQ(pos, 0u);
+  // A header alone reserves no room for a million arguments.
+  EXPECT_EQ(RespParser::parse("*1048576\r\n", pos, args, err), RespParser::Status::Incomplete);
+  EXPECT_LE(args.capacity(), 1024u);
+}
+
 TEST(RespParser, BinarySafeValues) {
   std::string buf = std::string("*1\r\n$4\r\na\r\0b\r\n", 14);
   size_t pos = 0;

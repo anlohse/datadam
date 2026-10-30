@@ -71,7 +71,8 @@ Once the `default` user needs a password (or is `off`), every new connection mus
   `NOAUTH Authentication required.`
 - Before logging in, a request larger than 16 KB is refused with
   `ERR Protocol error: unauthenticated request too big` and the connection is closed, so an anonymous client
-  cannot make the server buffer large requests.
+  cannot make the server buffer large requests. After logging in, the limit is `client-query-buffer-limit`
+  (1 GB). Connections past `maxclients` (10,000) are refused, logged in or not.
 - `AUTH password` logs in as `default`; `AUTH username password` logs in as any user;
   `HELLO 3 AUTH username password` logs in and switches to RESP3 in one step. `HELLO` without `AUTH` on a
   connection that has not logged in replies `NOAUTH HELLO must be called with the client already

@@ -27,7 +27,8 @@ const std::set<std::string, std::less<>>& runtime_settings() {
       "tls-protocols",       "tls-ciphers",          "tls-ciphersuites", "masteruser",
       "masterauth",          "backup-dir",           "backup-keep",    "slowlog-log-slower-than",
       "slowlog-max-len",     "tls-replication",      "tls-client-cert-file", "tls-client-key-file",
-      "replica-priority",    "protected-mode",       "promotion-handoff",
+      "replica-priority",    "protected-mode",       "promotion-handoff", "maxclients",
+      "client-query-buffer-limit", "tcp-keepalive",
   };
   return keys;
 }
@@ -49,6 +50,9 @@ ServerContext::ServerContext(Database& db_, Config& config_, ServerStats& stats_
       write_batching(config_.write_batching),
       auth_required(false),
       protected_mode(config_.protected_mode),
+      maxclients(config_.maxclients),
+      query_buffer_limit(config_.client_query_buffer_limit),
+      tcp_keepalive(config_.tcp_keepalive),
       backups(db_.storage(), start_time_ms_ / 1000),
       scripts(db_.storage()),
       mutable_config_(config_) {
@@ -161,6 +165,9 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   db.cache().set_admission(next.cache_admission);
   write_batching = next.write_batching;
   protected_mode = next.protected_mode;
+  maxclients = next.maxclients;
+  query_buffer_limit = next.client_query_buffer_limit;
+  tcp_keepalive = next.tcp_keepalive;
   if (next.requirepass != cur.requirepass) {
     std::string rule = next.requirepass.empty() ? "nopass" : ">" + next.requirepass;
     acl.set_user("default", std::vector<std::string>{"resetpass", rule});
@@ -207,6 +214,9 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   cur.tls_client_key_file = next.tls_client_key_file;
   cur.replica_priority = next.replica_priority;
   cur.promotion_handoff = next.promotion_handoff;
+  cur.maxclients = next.maxclients;
+  cur.client_query_buffer_limit = next.client_query_buffer_limit;
+  cur.tcp_keepalive = next.tcp_keepalive;
   for (const auto& [k, v] : pairs) log_info("CONFIG SET {}", to_lower(k));
   return {};
 }
