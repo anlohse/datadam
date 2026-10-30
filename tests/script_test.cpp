@@ -238,6 +238,25 @@ TEST_F(Scripts, TheSandboxHasRedisLibrariesOnly) {
   EXPECT_TRUE(eval("return t").error);
 }
 
+TEST_F(Scripts, NoScriptChangesWhatTheNextOneFinds) {
+  // Every script (of every user) shares the interpreter: redis.call replaced
+  // by one would have run in the next, with that one's permissions.
+  for (const char* attempt :
+       {"redis.call = function() return 'hijacked' end", "redis = {}", "string.rep = nil", "cjson.encode = nil",
+        "rawset(redis, 'call', nil)", "rawset(_G, 'redis', {})", "setmetatable(redis, {})",
+        "getmetatable('').__index = {}", "setmetatable(_G, {})", "_G.redis = {}", "getfenv(1).redis = {}",
+        "table.insert = nil", "math.floor = nil"}) {
+    EXPECT_TRUE(eval(attempt).error) << attempt;
+  }
+  EXPECT_EQ(eval("return redis.call('PING')").text, "PONG");
+  EXPECT_EQ(eval("return ('ab'):rep(2) .. string.rep('c', 2)").text, "ababcc");
+  EXPECT_EQ(eval("return getmetatable(redis) == false and getmetatable('') == false and 'hidden' or 'visible'").text,
+            "hidden");
+  // The scripts' own tables are theirs to change.
+  EXPECT_EQ(eval("local t = {} rawset(t, 'a', 1) setmetatable(t, {}) return t.a").text, "1");
+  EXPECT_EQ(eval("return KEYS[1] .. ARGV[1]", {"k"}, {"v"}).text, "kv");
+}
+
 TEST_F(Scripts, ReadOnlyScripts) {
   text({"SET", "k", "v"});
   EXPECT_EQ(text({"EVAL_RO", "return redis.call('GET', KEYS[1])", "1", "k"}), "v");
@@ -488,6 +507,16 @@ TEST_F(LiveScripts, ScriptKillStopsALoop) {
   EXPECT_TRUE(r.error);
   EXPECT_NE(r.text.find("Script killed by user with SCRIPT KILL"), std::string::npos) << r.text;
   EXPECT_EQ(runner.text({"PING"}), "PONG");
+  // A script that catches the error (pcall) gets it again at once, at every level.
+  runner.send({"EVAL",
+               "while true do pcall(function() while true do pcall(function() while true do end end) end end) end",
+               "0"});
+  std::this_thread::sleep_for(200ms);
+  EXPECT_EQ(killer.text({"SCRIPT", "KILL"}), "OK");
+  r = runner.read();
+  EXPECT_NE(r.text.find("Script killed by user with SCRIPT KILL"), std::string::npos) << r.text;
+  // And the next script runs at full speed again.
+  EXPECT_EQ(runner.text({"EVAL", "local i = 0 while i < 1e6 do i = i + 1 end return i", "0"}), "1000000");
   // A script that wrote cannot be killed.
   runner.send({"EVAL", "redis.call('SET', 'w', 1) local i = 0 while i < 3e8 do i = i + 1 end return 'end'", "0"});
   std::this_thread::sleep_for(200ms);

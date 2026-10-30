@@ -602,18 +602,72 @@ void ScriptEngine::setup() {
 
   lua_sethook(L, [](lua_State* L, lua_Debug*) {
     ScriptEngine* e = of(L);
-    if (e && e->kill_.load()) luaL_error(L, "Script killed by user with SCRIPT KILL...");
+    if (e && e->kill_.load()) {
+      // From now on at every instruction: a script that catches the error
+      // with pcall gets it again at its next one, until nothing catches it.
+      lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, 1);
+      luaL_error(L, "Script killed by user with SCRIPT KILL...");
+    }
   }, LUA_MASKCOUNT, kHookInstructions);
   protect_globals();
 }
 
 void ScriptEngine::protect_globals() {
-  luaL_dostring(L_,
-                "setmetatable(_G, {"
-                "__newindex = function(t, n, v) error(\"Script attempted to create global variable '\" .. "
-                "tostring(n) .. \"'\", 2) end,"
-                "__index = function(t, n) error(\"Script attempted to access nonexistent global variable '\" .. "
-                "tostring(n) .. \"'\", 2) end})");
+  // Scripts share one interpreter, whoever runs them: none may change what
+  // the next one finds (redis.call replaced would run in another user's
+  // script, with that user's permissions). As in Redis 7, the globals and the
+  // libraries are read-only, and no script may create a global. Each is a
+  // proxy that reads through to the real table and hides it (__metatable);
+  // rawset refuses them, and getfenv/setfenv, which reach the real globals,
+  // are gone.
+  static constexpr const char* kProtect = R"lua(
+    local real, rawset_, setmetatable_, error_, type_, tostring_ = _G, rawset, setmetatable, error, type, tostring
+    local readonly = setmetatable_({}, {__mode = "k"})
+    local function refuse() error_("Attempt to modify a readonly table", 3) end
+    local function readonly_table(t)
+      local proxy = setmetatable_({}, {__index = t, __newindex = refuse, __metatable = false})
+      readonly[proxy] = true
+      return proxy
+    end
+    for _, name in ipairs({"redis", "cjson", "string", "table", "math", "os", "coroutine", "bit"}) do
+      if type_(real[name]) == "table" then real[name] = readonly_table(real[name]) end
+    end
+    local string_meta = getmetatable("")
+    string_meta.__index = real.string
+    string_meta.__metatable = false
+    real.getfenv, real.setfenv = nil, nil
+    real.rawset = function(t, k, v)
+      if readonly[t] then refuse() end
+      return rawset_(t, k, v)
+    end
+    local globals = setmetatable_({}, {
+      __index = function(_, n)
+        local v = real[n]
+        if v == nil then
+          error_("Script attempted to access nonexistent global variable '" .. tostring_(n) .. "'", 2)
+        end
+        return v
+      end,
+      __newindex = function(_, n)
+        if real[n] ~= nil then refuse() end
+        error_("Script attempted to create global variable '" .. tostring_(n) .. "'", 2)
+      end,
+      __metatable = false,
+    })
+    readonly[globals] = true
+    real._G = globals
+    return globals, real.redis
+  )lua";
+  lua_State* L = L_;
+  if (luaL_loadstring(L, kProtect) != 0 || lua_pcall(L, 0, 2, 0) != 0) {
+    log_error("Lua: protecting the globals failed: {}", lua_tostring(L, -1) ? lua_tostring(L, -1) : "?");
+    lua_pop(L, 1);
+    return;
+  }
+  // The redis table functions get (FUNCTION libraries) is the read-only one too.
+  luaL_unref(L, LUA_REGISTRYINDEX, redis_ref_);
+  redis_ref_ = luaL_ref(L, LUA_REGISTRYINDEX);
+  lua_replace(L, LUA_GLOBALSINDEX);  // what scripts load from now on run in
 }
 
 // ---- EVAL / SCRIPT
@@ -762,6 +816,8 @@ void ScriptEngine::run(Cmd& c, int ref, bool as_function, std::span<const std::s
     push_list(args);
     lua_rawset(L, LUA_GLOBALSINDEX);
   }
+  // A SCRIPT KILL of the last script left the hook at every instruction.
+  if (lua_gethookcount(L) != kHookInstructions) lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, kHookInstructions);
   int status = lua_pcall(L, nargs, 1, 0);
   run_ = nullptr;
   running_ = false;
