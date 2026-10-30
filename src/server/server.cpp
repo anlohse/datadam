@@ -80,14 +80,16 @@ struct NetOutput {
 
 // Reads more bytes into `in`; returns false when the peer is gone.
 // Waits, without holding the thread, for the read pool to load `key`;
-// completes with whether it is now cached.
-template <class Token>
-auto async_load(ReadPool& pool, std::string_view key, Token&& token) {
+// completes with whether it is now cached. `then` runs once the key is
+// queued, to queue more behind it.
+template <class Then, class Token>
+auto async_load(ReadPool& pool, std::string_view key, Then& then, Token&& token) {
   return asio::async_initiate<Token, void(bool)>(
-      [&pool](auto handler, std::string_view key) {
+      [&pool, &then](auto handler, std::string_view key) {
         auto ex = asio::get_associated_executor(handler);
         auto h = std::make_shared<decltype(handler)>(std::move(handler));
         pool.load(key, [h, ex](bool cached) { asio::post(ex, [h, cached] { std::move(*h)(cached); }); });
+        then();
       },
       token, key);
 }
@@ -642,15 +644,20 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
           co_await wait_for_write(ctx_.db.storage(), write_timer, client.wait_after_seq, client.block_deadline_ms);
           if (client.entry) client.entry->blocked = false;
         } else if (blocked) {
-          // The earlier replies are out. Start loading the keys of the plain
-          // reads further down the pipeline too, so their disk reads overlap,
-          // then wait for this one's key while the thread serves others.
-          size_t p = pos;
-          for (int n = 0; n < kMaxPrefetchCommands; ++n) {
-            if (RespParser::parse(in, p, ahead, error) != RespParser::Status::Ok) break;
-            uncached_read_keys(ctx_, client, ahead, [&](std::string_view key) { pool->load(key, nullptr); });
-          }
-          auto [cached] = co_await async_load(*pool, client.load_key, kUseAwaitable);
+          // The earlier replies are out. Wait for this one's key while the
+          // thread serves others; behind it, start loading the other keys of
+          // this command and of the plain reads further down the pipeline,
+          // so their disk reads overlap.
+          auto prefetch = [&] {
+            size_t p = pos;
+            for (int n = 0; n < kMaxPrefetchCommands; ++n) {
+              if (RespParser::parse(in, p, ahead, error) != RespParser::Status::Ok) break;
+              uncached_read_keys(ctx_, client, ahead, [&](std::string_view key) {
+                if (key != client.load_key) pool->load(key, nullptr);
+              });
+            }
+          };
+          auto [cached] = co_await async_load(*pool, client.load_key, prefetch, kUseAwaitable);
           // A key that is still not cached (missing, too large) is read on this thread.
           defer = cached;
         }

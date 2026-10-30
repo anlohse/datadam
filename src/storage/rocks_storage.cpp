@@ -4,6 +4,8 @@
 #include <rocksdb/cache.h>
 #include <rocksdb/compaction_filter.h>
 #include <rocksdb/db.h>
+#include <rocksdb/env.h>
+#include <rocksdb/file_system.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/options.h>
 #include <rocksdb/table.h>
@@ -18,6 +20,7 @@
 #include <map>
 
 #include "storage/data_keys.h"
+#include "storage/nowait_fs.h"
 #include "storage/record.h"
 #include "util/clock.h"
 #include "util/log.h"
@@ -250,6 +253,14 @@ std::unique_ptr<RocksStorage> RocksStorage::open(const StorageOptions& opts) {
   db_opts.max_total_wal_size = max_total_wal_size(opts.write_buffer);
   db_opts.WAL_ttl_seconds = opts.wal_retention_s;
   db_opts.WAL_size_limit_MB = 0;  // trim_wal bounds the size, sparing what replicas need
+  s->page_cache_reads_ = opts.page_cache_reads && nowait_reads_work(opts.dir);
+  if (opts.page_cache_reads && !s->page_cache_reads_) {
+    log_info("page-cache-reads: off, the file system of {} cannot read without waiting (RWF_NOWAIT)", opts.dir);
+  }
+  if (s->page_cache_reads_) {
+    s->env_ = rocksdb::NewCompositeEnv(nowait_file_system(rocksdb::FileSystem::Default()));
+    db_opts.env = s->env_.get();
+  }
 
   rocksdb::LRUCacheOptions cache_opts;
   cache_opts.capacity = opts.block_cache;
@@ -329,11 +340,20 @@ bool RocksStorage::get(Cf cf, std::string_view key, std::string* value, const Sn
 RocksStorage::Probe RocksStorage::probe(Cf cf, std::string_view key) {
   rocksdb::PinnableSlice out;
   rocksdb::ReadOptions ro;
-  ro.read_tier = rocksdb::kBlockCacheTier;  // Incomplete instead of reading a file
-  rocksdb::Status st = db_->Get(ro, handle(cf), slice(key), &out);
+  rocksdb::Status st;
+  if (page_cache_reads_) {
+    // A block in the page cache is read (and goes to the block cache); one
+    // on disk fails the read (Busy). Handing a read to the pool wakes two
+    // threads: on reads the page cache could serve, about 3 times the CPU.
+    NoWaitReads nowait;
+    st = db_->Get(ro, handle(cf), slice(key), &out);
+  } else {
+    ro.read_tier = rocksdb::kBlockCacheTier;  // Incomplete instead of reading a file
+    st = db_->Get(ro, handle(cf), slice(key), &out);
+  }
   if (st.ok()) return Probe::Found;
   if (st.IsNotFound()) return Probe::Missing;
-  return Probe::NeedsIo;  // Incomplete, or an error the real read will report
+  return Probe::NeedsIo;  // Busy, Incomplete, or an error the real read will report
 }
 
 void RocksStorage::multi_get(Cf cf, std::span<const std::string_view> keys,

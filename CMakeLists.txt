@@ -40,6 +40,7 @@ add_library(datadam_core STATIC
   src/cache/object_cache.cpp
   src/storage/record.cpp
   src/storage/rocks_storage.cpp
+  src/storage/nowait_fs.cpp
   src/index/index_def.cpp
   src/index/index_registry.cpp
   src/index/search_query.cpp

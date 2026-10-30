@@ -20,6 +20,7 @@ namespace rocksdb {
 class Cache;
 class DB;
 class ColumnFamilyHandle;
+class Env;
 class Iterator;
 class Snapshot;
 class TransactionLogIterator;
@@ -57,6 +58,8 @@ struct StorageOptions {
   // How much more than wal_retention_bytes is kept while a replica still
   // needs it (hold_wal).
   uint64_t wal_hold_bytes = 0;
+  // Whether probe may read the OS page cache (Linux), not only RocksDB's memory.
+  bool page_cache_reads = true;
 };
 
 // What read_wal hands out: the entries of each write batch, in order.
@@ -160,11 +163,13 @@ class RocksStorage {
 
   bool get(std::string_view key, std::string* value) { return get(Cf::Meta, key, value); }
   bool get(Cf cf, std::string_view key, std::string* value, const Snapshot* snapshot = nullptr);
-  // A point read that only looks in memory (memtables, the block cache, and
-  // the filters there): whether the key is found, missing, or would need a
-  // file read to tell.
+  // A point read that never waits for the disk: it looks in the memtables,
+  // the block cache and the filters there, and (page_cache_reads, Linux) in
+  // the OS page cache for the blocks it needs; whether the key is found,
+  // missing, or would need a disk read to tell.
   enum class Probe { Found, Missing, NeedsIo };
   Probe probe(Cf cf, std::string_view key);
+  bool page_cache_reads() const { return page_cache_reads_; }
   // Point reads of several keys in one RocksDB MultiGet, which shares the
   // index and filter work and reads keys of the same block once.
   // (*values)[i] is nullopt if keys[i] is missing.
@@ -318,6 +323,8 @@ class RocksStorage {
   std::atomic<FsyncPolicy> fsync_;
   std::atomic<uint64_t> wal_hold_{0};
   std::shared_ptr<rocksdb::Cache> block_cache_;
+  bool page_cache_reads_ = false;
+  std::unique_ptr<rocksdb::Env> env_;  // with the no-wait file system; outlives db_
   std::unique_ptr<rocksdb::DB> db_;
   std::vector<rocksdb::ColumnFamilyHandle*> handles_;
   rocksdb::ColumnFamilyHandle* meta_ = nullptr;

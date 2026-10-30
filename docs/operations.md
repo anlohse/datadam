@@ -173,9 +173,12 @@ connection on that thread would stall. The read pool takes these reads off the I
 - **Deferred reads.** `GET`, `MGET`, `EXISTS`, `STRLEN`, `GETRANGE`, `SUBSTR`, `TYPE`, `TTL`, `PTTL`,
   `EXPIRETIME`, `PEXPIRETIME`, `JSON.GET`, `JSON.MGET`, `JSON.TYPE`, `JSON.STRLEN`, `JSON.ARRLEN`,
   `JSON.ARRINDEX`, `JSON.OBJKEYS` and `JSON.OBJLEN` have no side effect. When one of them misses the cache on
-  the Redis protocol, RocksDB is first asked to answer from memory only (its memtables, its block cache, and
-  the bloom filters there). If it can, which covers keys that do not exist and values whose block is cached,
-  the command just goes on, on the I/O thread. Only when the answer needs a file read does the connection
+  the Redis protocol, RocksDB is first asked to answer without waiting for the disk: from its memtables, its
+  block cache, the bloom filters there and, on Linux (`page-cache-reads`), the blocks the OS page cache holds,
+  read with `preadv2(RWF_NOWAIT)`, which fails instead of waiting. If it can, which covers keys that do not
+  exist and values whose block is cached by RocksDB or by the OS, the command just goes on, on the I/O thread.
+  Handing a read to the pool costs two thread wake-ups; on reads the page cache could serve, it took about
+  three times the CPU of reading on the I/O thread. Only when the answer needs a disk read does the connection
   commit its pending writes, send the earlier replies, and ask the pool for the key. The I/O thread serves
   other connections meanwhile. When the key is in the cache, the command runs again; the order of replies in
   a pipeline is kept.
@@ -273,7 +276,8 @@ with another thread), and the totals are added up only when `INFO` or `/metrics`
 | `tls_connections` | TLS handshakes completed |
 | `tls_handshake_failures` | TLS handshakes that failed or did not finish within 10 s |
 | `deferred_reads` | Reads handed to the read pool because their key was not cached and RocksDB needed a file read |
-| `memory_reads` | Reads whose key was not cached but RocksDB answered from memory (memtable, block cache, filters), on the I/O thread |
+| `memory_reads` | Reads whose key was not cached but RocksDB answered without waiting for the disk (memtable, block cache, filters, and with `page_cache_reads` the OS page cache), on the I/O thread |
+| `page_cache_reads` | 1 when those reads may use the OS page cache (`page-cache-reads yes` on Linux, on a file system that supports `RWF_NOWAIT`, such as ext4 and xfs; overlayfs and tmpfs do not) |
 | `read_pool_loads` | Keys loaded by the read pool |
 | `read_pool_batches` | Disk reads made by the pool (one key, or a `MultiGet` batch) |
 | `read_pool_joined` | Requests that joined a load already under way (single flight) |

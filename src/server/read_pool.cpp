@@ -28,13 +28,13 @@ ReadPool::~ReadPool() {
 void ReadPool::load(std::string_view key, Done done) {
   {
     std::lock_guard lock(mu_);
-    auto it = flights_.find(std::string(key));
+    auto it = flights_.find(key);
     if (it != flights_.end()) {
       ++joined_;
       if (done) it->second.waiters.push_back(std::move(done));
       return;
     }
-    Flight& f = flights_[std::string(key)];
+    Flight& f = flights_.try_emplace(std::string(key)).first->second;
     f.since = std::chrono::steady_clock::now();
     if (done) f.waiters.push_back(std::move(done));
     queue_.emplace_back(key);

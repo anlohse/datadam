@@ -61,6 +61,7 @@ class AdminTest : public ::testing::Test {
     StorageOptions so;
     so.dir = dir_.string();
     so.fsync = FsyncPolicy::No;
+    so.page_cache_reads = false;  // a block on file is a disk read, whatever the OS cached
     storage_ = RocksStorage::open(so);
     CacheOptions co;
     co.max_memory = 4 << 20;

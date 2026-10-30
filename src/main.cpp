@@ -104,6 +104,7 @@ int main(int argc, char** argv) {
     so.wal_retention_s = static_cast<uint64_t>(cfg.wal_retention.count() / 1000);
     so.wal_retention_bytes = cfg.wal_retention_size;
     so.wal_hold_bytes = cfg.wal_retention_hold;
+    so.page_cache_reads = cfg.page_cache_reads;
     auto storage = RocksStorage::open(so);
 
     CacheOptions co;

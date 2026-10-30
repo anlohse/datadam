@@ -300,14 +300,15 @@ commands() {
   t  "SET second small"         "OK" SET c2 v2
   t  "SAVE (to disk)"           "OK" SAVE
   t  "CACHE CLEAR again"        "OK" CACHE CLEAR
-  # Reads of uncached keys on disk are loaded by the read pool and run again;
+  # Reads of uncached keys on disk are loaded by the read pool and run again,
+  # unless the OS page cache has their blocks (page_cache_reads: read at once);
   # a key that does not exist is answered by RocksDB's filters, from memory.
   tp "uncached reads, one connection" $'small-value\nv2\n\n2\n2' <<'EOF'
 MGET c1 c2 nokey
 EXISTS c1 c2 nokey
 STRLEN c2
 EOF
-  tx "reads went through the read pool" 'read_pool_loads:[1-9]' INFO stats
+  tx "reads went through the read pool or the page cache" 'read_pool_loads:[1-9]|page_cache_reads:1' INFO stats
   tx "missing key read from memory" 'memory_reads:[1-9]' INFO stats
   t  "SET 100KB value"          "OK" -x SET bigv < "$big_file"
   t  "GET 100KB value"          "100000" STRLEN bigv

@@ -2,14 +2,21 @@
 
 #include <atomic>
 #include <filesystem>
+#include <format>
 #include <future>
 #include <random>
 #include <thread>
 
 #include "cache/object_cache.h"
 #include "db/database.h"
+#include "storage/nowait_fs.h"
 #include "storage/rocks_storage.h"
 #include "util/clock.h"
+
+#ifdef __linux__
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 using namespace datadam;
 namespace fs = std::filesystem;
@@ -303,4 +310,54 @@ TEST_F(DatabaseTest, BatchKeepsOnlyTheLastWriteOfAKey) {
   EXPECT_EQ(value("k"), "2");
   EXPECT_EQ(value("gone"), "<none>");
   EXPECT_EQ(value("n"), "100");
+}
+
+TEST(ProbeTest, ReadsThePageCacheButNeverWaitsForTheDisk) {
+  fs::path dir = fs::temp_directory_path() / ("datadam_probe_" + std::to_string(std::random_device{}()));
+  auto open = [&](bool page_cache) {
+    StorageOptions so;
+    so.dir = dir.string();
+    so.fsync = FsyncPolicy::No;
+    so.page_cache_reads = page_cache;
+    return RocksStorage::open(so);
+  };
+  {
+    auto s = open(true);
+    for (int i = 0; i < 1000; ++i) s->put(std::format("k{:03}", i), std::string(1000, 'v'));
+    s->flush();
+  }
+  using P = RocksStorage::Probe;
+  {
+    // Reopened: the block cache is empty, the data blocks are in the file
+    // (and, just written, in the page cache).
+    auto s = open(false);
+    EXPECT_EQ(s->probe(Cf::Meta, "k000"), P::NeedsIo);
+    EXPECT_EQ(s->probe(Cf::Meta, "nosuchkey"), P::Missing);  // the filter knows
+  }
+  auto s = open(true);
+  // (Where the file system cannot read without waiting, as overlayfs and
+  // tmpfs, it is as without the page cache.)
+  bool page_cache = nowait_reads_work(dir.string());
+  EXPECT_EQ(s->page_cache_reads(), page_cache);
+  EXPECT_EQ(s->probe(Cf::Meta, "k000"), page_cache ? P::Found : P::NeedsIo);
+  EXPECT_EQ(s->probe(Cf::Meta, "nosuchkey"), P::Missing);
+  std::string v;
+  EXPECT_TRUE(s->get(Cf::Meta, "k999", &v));  // reads that may wait are not affected
+  EXPECT_EQ(v, std::string(1000, 'v'));
+#ifdef __linux__
+  // Out of the page cache, a block is a disk read again.
+  for (const auto& e : fs::directory_iterator(dir)) {
+    if (e.path().extension() != ".sst") continue;
+    int fd = ::open(e.path().c_str(), O_RDONLY);
+    ASSERT_GE(fd, 0);
+    ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    ::close(fd);
+  }
+  EXPECT_EQ(s->probe(Cf::Meta, "k500"), P::NeedsIo);
+  s.reset();
+  fs::remove_all(dir);
+#else
+  s.reset();
+  fs::remove_all(dir);
+#endif
 }
