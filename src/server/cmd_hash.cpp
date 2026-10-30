@@ -233,34 +233,40 @@ void cmd_hrandfield(Cmd& c) {
     if (fields.empty()) return c.r.null();
     return c.r.bulk(fields[rng() % fields.size()].first);
   }
-  Pairs picked;
+  // n picks, written as they are made: a negative count repeats fields, and
+  // copies of them all would double what the reply already holds.
+  auto reply = [&](uint64_t n, auto&& pick) {
+    if (!with_values) {
+      c.r.array(n);
+      for (uint64_t i = 0; i < n; ++i) c.r.bulk(pick().first);
+    } else if (c.r.proto() >= 3) {
+      c.r.array(n);
+      for (uint64_t i = 0; i < n; ++i) {
+        const auto& [f, v] = pick();
+        c.r.array(2);
+        c.r.bulk(f);
+        c.r.bulk(v);
+      }
+    } else {
+      c.r.array(n * 2);
+      for (uint64_t i = 0; i < n; ++i) {
+        const auto& [f, v] = pick();
+        c.r.bulk(f);
+        c.r.bulk(v);
+      }
+    }
+  };
   if (*count >= 0) {
     // Distinct fields, in random order.
     std::shuffle(fields.begin(), fields.end(), rng);
     fields.resize(std::min<size_t>(fields.size(), static_cast<size_t>(*count)));
-    picked = std::move(fields);
-  } else if (!fields.empty()) {
-    uint64_t n = *count == INT64_MIN ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(-*count);
-    if (n > 1'000'000'000) return c.r.error(kMustBePositive);
-    for (uint64_t i = 0; i < n; ++i) picked.push_back(fields[rng() % fields.size()]);
+    size_t next = 0;
+    return reply(fields.size(), [&]() -> const auto& { return fields[next++]; });
   }
-  if (!with_values) {
-    c.r.array(picked.size());
-    for (const auto& p : picked) c.r.bulk(p.first);
-  } else if (c.r.proto() >= 3) {
-    c.r.array(picked.size());
-    for (const auto& [f, v] : picked) {
-      c.r.array(2);
-      c.r.bulk(f);
-      c.r.bulk(v);
-    }
-  } else {
-    c.r.array(picked.size() * 2);
-    for (const auto& [f, v] : picked) {
-      c.r.bulk(f);
-      c.r.bulk(v);
-    }
-  }
+  uint64_t n = *count == INT64_MIN ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(-*count);
+  if (n > 1'000'000'000) return c.r.error(kMustBePositive);
+  if (fields.empty()) n = 0;
+  reply(n, [&]() -> const auto& { return fields[rng() % fields.size()]; });
 }
 
 }  // namespace

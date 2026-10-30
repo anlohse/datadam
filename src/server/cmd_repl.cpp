@@ -87,7 +87,7 @@ void cmd_wait(Cmd& c) {
   auto acked = static_cast<int64_t>(c.ctx.repl.acked(client.wait_offset));
   int64_t now = steady_time_ms();
   if (!resuming && client.can_block) {
-    client.block_deadline_ms = *timeout == 0 ? std::numeric_limits<int64_t>::max() : now + *timeout;
+    client.block_deadline_ms = *timeout == 0 ? std::numeric_limits<int64_t>::max() : deadline_after(now, *timeout);
   }
   if (acked >= *wanted || !client.can_block || now >= client.block_deadline_ms) {
     c.ctx.repl.forget_waiter(waiter.get());

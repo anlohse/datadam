@@ -740,7 +740,7 @@ EOF
   [[ "$got" == *'"SET" "monkey" "monvalue"'* ]] && report "MONITOR shows commands" 1 ||
     report "MONITOR shows commands" 0 '*"SET" "monkey" "monvalue"*' "$got" "MONITOR"
   rm -f "$mon_out"
-  tc "BACKUP existing path"     "already exists" BACKUP /
+  tc "BACKUP outside backup-dir" "backup-dir" BACKUP /
 
   section "scan"
   t  "FLUSHALL"                 "OK" FLUSHALL
@@ -774,7 +774,7 @@ EOF
   t  "write with fsync always"  "OK" SET fsynced v
   t  "CONFIG SET back"          "OK" CONFIG SET fsync everysec cache-on-write yes cache-max-idle 5m
   tc "immutable parameter"      "can't set immutable config" CONFIG SET port 7000
-  tc "unknown parameter"        "Unknown option" CONFIG SET maxclients 10
+  tc "unknown parameter"        "Unknown option" CONFIG SET no-such-option 10
   tc "bad value"                "ERR CONFIG SET failed" CONFIG SET fsync sometimes
   tc "all or nothing"           "ERR CONFIG SET failed" CONFIG SET log-level debug cache-min-memory 99gb
   t  "nothing was applied"      $'log-level\ninfo' CONFIG GET log-level

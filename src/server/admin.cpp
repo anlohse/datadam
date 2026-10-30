@@ -53,6 +53,19 @@ Backups::~Backups() {
   if (worker_.joinable()) worker_.join();
 }
 
+std::optional<std::string> backup_path_inside(const std::string& dir, const std::string& path) {
+  std::error_code ec;
+  fs::path base = fs::weakly_canonical(fs::absolute(dir, ec), ec);
+  if (ec) return std::nullopt;
+  fs::path target = fs::path(path).is_absolute() ? fs::path(path) : base / path;
+  // Symbolic links resolved, as far as the path exists.
+  target = fs::weakly_canonical(target, ec);
+  if (ec) return std::nullopt;
+  auto [b, t] = std::mismatch(base.begin(), base.end(), target.begin(), target.end());
+  if (b != base.end() || t == target.end()) return std::nullopt;  // not below base (or base itself)
+  return target.string();
+}
+
 std::string Backups::backup(const std::string& path) { return checkpoint(path, false); }
 
 std::string Backups::checkpoint(const std::string& path, bool background) {

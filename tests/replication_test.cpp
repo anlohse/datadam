@@ -69,9 +69,12 @@ class Client {
   }
 
   Value run(const std::vector<std::string>& args) {
-    std::string out = std::format("*{}\r\n", args.size());
-    for (const auto& a : args) out += std::format("${}\r\n{}\r\n", a.size(), a);
-    asio::write(socket_, asio::buffer(out));
+    send(args);
+    return receive();
+  }
+
+  // The next reply.
+  Value receive() {
     for (;;) {
       std::string_view view = buf_;
       Value v;
@@ -86,6 +89,14 @@ class Client {
   }
 
   std::string text(const std::vector<std::string>& args) { return run(args).text; }
+
+  // Sends a command without waiting for a reply (a replica's stream side).
+  void send(const std::vector<std::string>& args) {
+    std::string out = std::format("*{}\r\n", args.size());
+    for (const auto& a : args) out += std::format("${}\r\n{}\r\n", a.size(), a);
+    send_raw(out);
+  }
+  void send_raw(std::string_view bytes) { asio::write(socket_, asio::buffer(bytes)); }
 
  private:
   asio::io_context io_;
@@ -501,6 +512,97 @@ TEST_F(ReplicationTest, PromotionHandoffLosesNoWrite) {
   }));
   EXPECT_EQ(other->info("full_syncs"), "1");  // its first sync, from the old primary
   EXPECT_EQ(other->info("partial_syncs"), "1");
+}
+
+TEST_F(ReplicationTest, AReplicationUserCannotTakeThePrimaryOver) {
+  // A user that may only replicate (docs/security.md) used to be enough to
+  // make the primary hand over to it, and follow it: acknowledge everything,
+  // ask for the hand-over, answer it.
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"ACL", "SETUSER", "repl", "on", ">pw", "+ping", "+replconf", "+replsync"}), "OK");
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  Client fake(primary_->port());
+  EXPECT_EQ(fake.text({"AUTH", "repl", "pw"}), "OK");
+  EXPECT_EQ(fake.text({"REPLCONF", "listening-port", "1"}), "OK");
+  EXPECT_TRUE(fake.text({"REPLSYNC", "?", "0"}).starts_with("FULLSYNC")) << "a full sync starts";
+  ASSERT_TRUE(eventually([&] { return primary_->info("connected_slaves") == "1"; }));
+  fake.send({"REPLCONF", "ACK", "999999999999"});
+  fake.send({"REPLCONF", "HANDOFF", "999999999999"});
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(primary_->info("master_failover_state"), "no-failover");
+  fake.send({"REPLCONF", "FAILOVER-ACK", "999999999999"});
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(primary_->info("role"), "master");
+  // Nor can an acknowledgment claim writes that were not sent yet.
+  EXPECT_EQ(p.text({"SET", "b", "2"}), "OK");
+  EXPECT_EQ(p.text({"WAIT", "1", "300"}), "0");
+}
+
+// Connection limits (any server will do: these use the replication tests' Node).
+TEST(ServerLimitsTest, MaxclientsQueryBufferAndTrickledRequests) {
+  fs::path dir = fs::temp_directory_path() / ("datadam_limits_" + std::to_string(std::random_device{}()));
+  {
+    Node node(dir, 0);
+    Client admin(node.port());
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "maxclients", "2"}), "OK");
+    // One more fits, the others are refused (all of them if a stray
+    // connection, from an earlier test on the same port, took that place).
+    std::vector<std::unique_ptr<Client>> more;
+    int refused = 0;
+    for (int i = 0; i < 3; ++i) {
+      more.push_back(std::make_unique<Client>(node.port()));
+      std::string reply;
+      try {
+        reply = more.back()->text({"PING"});
+      } catch (const std::exception&) {
+        // The server closed it with the PING unread: a reset, which on Windows
+        // can drop the error before it is read. Only a refusal closes it.
+        reply = "reset";
+      }
+      if (reply == "ERR max number of clients reached" || reply == "reset") ++refused;
+      else EXPECT_EQ(reply, "PONG");
+    }
+    EXPECT_GE(refused, 2);
+    more.clear();
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "maxclients", "10000"}), "OK");
+    std::string stats = admin.text({"INFO", "stats"});
+    EXPECT_EQ(stats.find("rejected_connections:0\r\n"), std::string::npos) << stats;
+
+    // A request that grows past client-query-buffer-limit closes the connection.
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "client-query-buffer-limit", "1mb"}), "OK");
+    EXPECT_TRUE(admin.run({"CONFIG", "SET", "client-query-buffer-limit", "1000"}).error);  // below 1mb
+    // One byte past it, and no more: bytes the server never reads would make
+    // its close a reset, which on Windows drops the reply before it is read.
+    Client big(node.port());
+    std::string header = "*1\r\n$3000000\r\n";
+    big.send_raw(header);
+    big.send_raw(std::string((1 << 20) + 1 - header.size(), 'x'));
+    Value v = big.receive();
+    EXPECT_TRUE(v.error);
+    EXPECT_EQ(v.text, "ERR Protocol error: client query buffer limit reached");
+
+    // A million arguments trickling in a few bytes at a time: each read used
+    // to walk every argument received so far again.
+    EXPECT_EQ(admin.text({"CONFIG", "SET", "client-query-buffer-limit", "1gb"}), "OK");
+    Client slow(node.port());
+    constexpr int kArgs = 200000;
+    slow.send_raw(std::format("*{}\r\n$4\r\nMSET\r\n", kArgs + 1));
+    std::string arg = "$1\r\nx\r\n";
+    auto start = std::chrono::steady_clock::now();
+    std::string chunk;
+    for (int i = 0; i < kArgs; ++i) {
+      chunk += arg;
+      if (chunk.size() >= 70) {  // ten arguments per write
+        slow.send_raw(chunk);
+        chunk.clear();
+      }
+    }
+    slow.send_raw(chunk);
+    EXPECT_EQ(slow.text({"PING"}), "OK");  // MSET's reply; then PING's
+    EXPECT_EQ(slow.receive().text, "PONG");
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(20));
+  }
+  fs::remove_all(dir);
 }
 
 TEST_F(ReplicationTest, FunctionsFollowThePrimary) {

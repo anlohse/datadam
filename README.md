@@ -779,11 +779,21 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    GETs and SETs slept in `futex_wait` for locks held a fraction of a microsecond. They now spin first; in
    Docker on 8 CPUs, pipelined mixed in memory made 5 times fewer context switches, with 13% less CPU per
    operation.
+   A security review of what clients can make the server do. It found requests that crashed it (JSONPath
+   filters and `FT.SEARCH` queries nested deep enough overflowed the stack; `$..*..*..*..*` over a deep document
+   exhausted memory), a replication-only user that could make the primary step down and follow it, Lua scripts
+   that could replace `redis.call` for every later script (of any user) and survive `SCRIPT KILL` with `pcall`,
+   `CONFIG REWRITE` lines injected through a value, and no limit on connections or on a logged-in client's
+   input. All fixed, with Redis's limits where Redis has one (`maxclients`, `client-query-buffer-limit`,
+   `tcp-keepalive`, `enable-protected-configs`, read-only Lua globals, `CLIENT KILL` in `@admin`). CI now runs
+   CodeQL and scans the image's packages (Trivy).
    Next steps, from what those tests showed:
    - the larger-than-memory latency curve again (that run's memtier replayed the same keys:
      `cloud.py large --curve`), and whether the ~40% of CPU left idle by mixed workloads on 16 vCPUs is gone
      (not reproducible on the local machine);
-   - a security review (limits, `CONFIG SET` paths), CodeQL and image scanning, more fuzz targets;
+   - more fuzz targets (the `FT.SEARCH` and `IDX` query parsers, the memcache protocol, CONFIG and ACL rules,
+     replicated WAL batches) with inputs long enough to nest deeply; and closing subscribed connections when
+     their user loses the permission to their channels (now: at their next command);
    - what the tests did not cover: client libraries' own suites (BullMQ, Sidekiq, redis-py, Redlock), a full or
      failing disk, partitions between clients and server, soaks of weeks, other instance types, and the
      restart time since the live WAL is bounded (phase 6's 8 to 13 s came before).

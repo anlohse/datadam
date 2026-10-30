@@ -21,8 +21,11 @@ bool parse_len(std::string_view buf, size_t start, size_t crlf, int64_t* out) {
 }  // namespace
 
 RespParser::Status RespParser::parse(std::string_view buf, size_t& pos, std::vector<std::string_view>& args,
-                                     std::string& error) {
+                                     std::string& error, size_t* need) {
   args.clear();
+  size_t ignored;
+  if (!need) need = &ignored;
+  *need = buf.size() + 1;
   if (pos >= buf.size()) return Status::Incomplete;
 
   if (buf[pos] != '*') {
@@ -59,9 +62,15 @@ RespParser::Status RespParser::parse(std::string_view buf, size_t& pos, std::vec
     pos = p;
     return Status::Ok;
   }
-  args.reserve(static_cast<size_t>(n));
+  // Not n: a header alone would reserve 16 MB before any argument arrives.
+  args.reserve(std::min<size_t>(static_cast<size_t>(n), 1024));
+  // The smallest the arguments from i on can be: "$0\r\n\r\n" each.
+  auto at_least = [n](size_t from, int64_t i) { return from + 6 * static_cast<size_t>(n - i); };
   for (int64_t i = 0; i < n; ++i) {
-    if (p >= buf.size()) return Status::Incomplete;
+    if (p >= buf.size()) {
+      *need = at_least(p, i);
+      return Status::Incomplete;
+    }
     if (buf[p] != '$') {
       error = std::format("ERR Protocol error: expected '$', got '{}'", buf[p]);
       return Status::Error;
@@ -72,6 +81,7 @@ RespParser::Status RespParser::parse(std::string_view buf, size_t& pos, std::vec
         error = "ERR Protocol error: invalid bulk length";
         return Status::Error;
       }
+      *need = std::max(buf.size() + 1, at_least(p, i));
       return Status::Incomplete;
     }
     int64_t len;
@@ -80,7 +90,10 @@ RespParser::Status RespParser::parse(std::string_view buf, size_t& pos, std::vec
       return Status::Error;
     }
     size_t data = lcrlf + 2;
-    if (buf.size() < data + static_cast<size_t>(len) + 2) return Status::Incomplete;
+    if (buf.size() < data + static_cast<size_t>(len) + 2) {
+      *need = at_least(data + static_cast<size_t>(len) + 2, i + 1);
+      return Status::Incomplete;
+    }
     if (buf[data + len] != '\r' || buf[data + len + 1] != '\n') {
       error = "ERR Protocol error: bulk string not terminated by CRLF";
       return Status::Error;

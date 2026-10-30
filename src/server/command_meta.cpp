@@ -21,14 +21,18 @@ constexpr KeyRange kRead1{1, 1, 1, kKeyRead};
 constexpr KeyRange kWrite1{1, 1, 1, kKeyWrite};
 constexpr KeyRange kReadAll{1, -1, 1, kKeyRead};
 constexpr KeyRange kWriteAll{1, -1, 1, kKeyWrite};
-constexpr KeyRange kWrite1to2{1, 2, 1, kKeyWrite};
 constexpr KeyRange kWritePairs{1, -1, 2, kKeyWrite};
 constexpr KeyRange kRead2toEnd{2, -1, 1, kKeyRead};
 constexpr KeyRange kRead2{2, 2, 1, kKeyRead};  // OBJECT ENCODING key, MEMORY USAGE key
 constexpr KeyRange kReadNumkeys{2, 0, 1, kKeyRead, 1};
-constexpr KeyRange kWriteNumkeys1{2, 0, 1, kKeyWrite, 1};   // numkeys at 1, keys from 2 (LMPOP)
-constexpr KeyRange kWriteNumkeys2{3, 0, 1, kKeyWrite, 2};   // numkeys at 2, keys from 3 (BLMPOP)
-constexpr KeyRange kWriteBeforeLast{1, -2, 1, kKeyWrite};   // key ... timeout (BLPOP)
+// Writes that also return what the key held (GETDEL, LPOP, INCR...), or move
+// it where it could be read (RENAME, LMOVE): a write-only key pattern
+// (%W~) must not be a way to read, as in Redis.
+constexpr KeyRange kReadWrite1{1, 1, 1, kKeyRead | kKeyWrite};
+constexpr KeyRange kReadWrite1to2{1, 2, 1, kKeyRead | kKeyWrite};
+constexpr KeyRange kReadWriteBeforeLast{1, -2, 1, kKeyRead | kKeyWrite};  // key ... timeout (BLPOP)
+constexpr KeyRange kReadWriteNumkeys1{2, 0, 1, kKeyRead | kKeyWrite, 1};    // numkeys at 1, keys from 2 (LMPOP)
+constexpr KeyRange kReadWriteNumkeys2{3, 0, 1, kKeyRead | kKeyWrite, 2};    // numkeys at 2, keys from 3 (BLMPOP)
 constexpr KeyRange kScriptKeys{3, 0, 1, kKeyRead | kKeyWrite, 2};  // EVAL script numkeys key...
 constexpr KeyRange kScriptReadKeys{3, 0, 1, kKeyRead, 2};         // EVAL_RO
 
@@ -100,9 +104,9 @@ const Entry kEntries[] = {
     {"setnx", {W | STR | FAST, {kWrite1, kNone}}},
     {"setex", {W | STR | SLOW, {kWrite1, kNone}}},
     {"psetex", {W | STR | SLOW, {kWrite1, kNone}}},
-    {"getset", {W | STR | FAST, {kWrite1, kNone}}},
-    {"getdel", {W | STR | FAST, {kWrite1, kNone}}},
-    {"getex", {W | STR | FAST, {kWrite1, kNone}}},
+    {"getset", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"getdel", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"getex", {W | STR | FAST, {kReadWrite1, kNone}}},
     {"mget", {R | STR | FAST, {kReadAll, kNone}}},
     {"mset", {W | STR | SLOW, {kWritePairs, kNone}}},
     {"msetnx", {W | STR | SLOW, {kWritePairs, kNone}}},
@@ -111,11 +115,11 @@ const Entry kEntries[] = {
     {"getrange", {R | STR | SLOW, {kRead1, kNone}}},
     {"substr", {R | STR | SLOW, {kRead1, kNone}}},
     {"setrange", {W | STR | SLOW, {kWrite1, kNone}}},
-    {"incr", {W | STR | FAST, {kWrite1, kNone}}},
-    {"decr", {W | STR | FAST, {kWrite1, kNone}}},
-    {"incrby", {W | STR | FAST, {kWrite1, kNone}}},
-    {"decrby", {W | STR | FAST, {kWrite1, kNone}}},
-    {"incrbyfloat", {W | STR | FAST, {kWrite1, kNone}}},
+    {"incr", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"decr", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"incrby", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"decrby", {W | STR | FAST, {kReadWrite1, kNone}}},
+    {"incrbyfloat", {W | STR | FAST, {kReadWrite1, kNone}}},
     // keyspace
     {"del", {KS | W | SLOW, {kWriteAll, kNone}}},
     {"unlink", {KS | W | FAST, {kWriteAll, kNone}}},
@@ -130,15 +134,15 @@ const Entry kEntries[] = {
     {"expiretime", {KS | R | FAST, {kRead1, kNone}}},
     {"pexpiretime", {KS | R | FAST, {kRead1, kNone}}},
     {"persist", {KS | W | FAST, {kWrite1, kNone}}},
-    {"rename", {KS | W | SLOW, {kWrite1to2, kNone}}},
-    {"renamenx", {KS | W | FAST, {kWrite1to2, kNone}}},
+    {"rename", {KS | W | SLOW, {kReadWrite1to2, kNone}}},
+    {"renamenx", {KS | W | FAST, {kReadWrite1to2, kNone}}},
     // hash
     {"hset", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hmset", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hsetnx", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hdel", {W | HASH | FAST, {kWrite1, kNone}}},
-    {"hincrby", {W | HASH | FAST, {kWrite1, kNone}}},
-    {"hincrbyfloat", {W | HASH | FAST, {kWrite1, kNone}}},
+    {"hincrby", {W | HASH | FAST, {kReadWrite1, kNone}}},
+    {"hincrbyfloat", {W | HASH | FAST, {kReadWrite1, kNone}}},
     {"hget", {R | HASH | FAST, {kRead1, kNone}}},
     {"hmget", {R | HASH | FAST, {kRead1, kNone}}},
     {"hexists", {R | HASH | FAST, {kRead1, kNone}}},
@@ -152,8 +156,8 @@ const Entry kEntries[] = {
     // set
     {"sadd", {W | SET | FAST, {kWrite1, kNone}}},
     {"srem", {W | SET | FAST, {kWrite1, kNone}}},
-    {"spop", {W | SET | FAST, {kWrite1, kNone}}},
-    {"smove", {W | SET | FAST, {kWrite1to2, kNone}}},
+    {"spop", {W | SET | FAST, {kReadWrite1, kNone}}},
+    {"smove", {W | SET | FAST, {kReadWrite1to2, kNone}}},
     {"sinterstore", {W | SET | SLOW, {kWrite1, kRead2toEnd}}},
     {"sunionstore", {W | SET | SLOW, {kWrite1, kRead2toEnd}}},
     {"sdiffstore", {W | SET | SLOW, {kWrite1, kRead2toEnd}}},
@@ -169,14 +173,14 @@ const Entry kEntries[] = {
     {"sintercard", {R | SET | SLOW, {kReadNumkeys, kNone}}},
     // sorted set
     {"zadd", {W | ZSET | FAST, {kWrite1, kNone}}},
-    {"zincrby", {W | ZSET | FAST, {kWrite1, kNone}}},
+    {"zincrby", {W | ZSET | FAST, {kReadWrite1, kNone}}},
     {"zrem", {W | ZSET | FAST, {kWrite1, kNone}}},
-    {"zpopmin", {W | ZSET | FAST, {kWrite1, kNone}}},
-    {"bzpopmin", {W | ZSET | FAST | BLOCK, {kWriteBeforeLast, kNone}}},
-    {"bzpopmax", {W | ZSET | FAST | BLOCK, {kWriteBeforeLast, kNone}}},
-    {"zmpop", {W | ZSET | SLOW, {kWriteNumkeys1, kNone}}},
-    {"bzmpop", {W | ZSET | SLOW | BLOCK, {kWriteNumkeys2, kNone}}},
-    {"zpopmax", {W | ZSET | FAST, {kWrite1, kNone}}},
+    {"zpopmin", {W | ZSET | FAST, {kReadWrite1, kNone}}},
+    {"bzpopmin", {W | ZSET | FAST | BLOCK, {kReadWriteBeforeLast, kNone}}},
+    {"bzpopmax", {W | ZSET | FAST | BLOCK, {kReadWriteBeforeLast, kNone}}},
+    {"zmpop", {W | ZSET | SLOW, {kReadWriteNumkeys1, kNone}}},
+    {"bzmpop", {W | ZSET | SLOW | BLOCK, {kReadWriteNumkeys2, kNone}}},
+    {"zpopmax", {W | ZSET | FAST, {kReadWrite1, kNone}}},
     {"zremrangebyscore", {W | ZSET | SLOW, {kWrite1, kNone}}},
     {"zremrangebyrank", {W | ZSET | SLOW, {kWrite1, kNone}}},
     {"zremrangebylex", {W | ZSET | SLOW, {kWrite1, kNone}}},
@@ -199,20 +203,20 @@ const Entry kEntries[] = {
     {"rpush", {W | LIST | FAST, {kWrite1, kNone}}},
     {"lpushx", {W | LIST | FAST, {kWrite1, kNone}}},
     {"rpushx", {W | LIST | FAST, {kWrite1, kNone}}},
-    {"lpop", {W | LIST | FAST, {kWrite1, kNone}}},
-    {"rpop", {W | LIST | FAST, {kWrite1, kNone}}},
+    {"lpop", {W | LIST | FAST, {kReadWrite1, kNone}}},
+    {"rpop", {W | LIST | FAST, {kReadWrite1, kNone}}},
     {"lset", {W | LIST | SLOW, {kWrite1, kNone}}},
     {"ltrim", {W | LIST | SLOW, {kWrite1, kNone}}},
     {"lrem", {W | LIST | SLOW, {kWrite1, kNone}}},
     {"linsert", {W | LIST | SLOW, {kWrite1, kNone}}},
-    {"lmove", {W | LIST | SLOW, {kWrite1to2, kNone}}},
-    {"blpop", {W | LIST | SLOW | BLOCK, {kWriteBeforeLast, kNone}}},
-    {"brpop", {W | LIST | SLOW | BLOCK, {kWriteBeforeLast, kNone}}},
-    {"blmove", {W | LIST | SLOW | BLOCK, {kWrite1to2, kNone}}},
-    {"brpoplpush", {W | LIST | SLOW | BLOCK, {kWrite1to2, kNone}}},
-    {"lmpop", {W | LIST | SLOW, {kWriteNumkeys1, kNone}}},
-    {"blmpop", {W | LIST | SLOW | BLOCK, {kWriteNumkeys2, kNone}}},
-    {"rpoplpush", {W | LIST | SLOW, {kWrite1to2, kNone}}},
+    {"lmove", {W | LIST | SLOW, {kReadWrite1to2, kNone}}},
+    {"blpop", {W | LIST | SLOW | BLOCK, {kReadWriteBeforeLast, kNone}}},
+    {"brpop", {W | LIST | SLOW | BLOCK, {kReadWriteBeforeLast, kNone}}},
+    {"blmove", {W | LIST | SLOW | BLOCK, {kReadWrite1to2, kNone}}},
+    {"brpoplpush", {W | LIST | SLOW | BLOCK, {kReadWrite1to2, kNone}}},
+    {"lmpop", {W | LIST | SLOW, {kReadWriteNumkeys1, kNone}}},
+    {"blmpop", {W | LIST | SLOW | BLOCK, {kReadWriteNumkeys2, kNone}}},
+    {"rpoplpush", {W | LIST | SLOW, {kReadWrite1to2, kNone}}},
     {"llen", {R | LIST | FAST, {kRead1, kNone}}},
     {"lindex", {R | LIST | SLOW, {kRead1, kNone}}},
     {"lrange", {R | LIST | SLOW, {kRead1, kNone}}},
@@ -242,14 +246,14 @@ const Entry kEntries[] = {
     {"json.del", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.forget", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.type", {R | JSON | SLOW, {kRead1, kNone}}},
-    {"json.numincrby", {W | JSON | SLOW, {kWrite1, kNone}}},
+    {"json.numincrby", {W | JSON | SLOW, {kReadWrite1, kNone}}},
     {"json.nummultby", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.strappend", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.strlen", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.arrappend", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.arrinsert", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.arrlen", {R | JSON | SLOW, {kRead1, kNone}}},
-    {"json.arrpop", {W | JSON | SLOW, {kWrite1, kNone}}},
+    {"json.arrpop", {W | JSON | SLOW, {kReadWrite1, kNone}}},
     {"json.arrtrim", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.arrindex", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.objkeys", {R | JSON | SLOW, {kRead1, kNone}}},
@@ -266,6 +270,18 @@ const Entry kEntries[] = {
 };
 
 }  // namespace
+
+const std::vector<std::pair<std::string_view, uint32_t>>& subcommand_categories() {
+  // As in Redis: what reaches other users' connections is for administrators.
+  static const std::vector<std::pair<std::string_view, uint32_t>> subs = {
+      {"client|kill", ADMIN | CONN | SLOW | DANGER},
+      {"client|list", ADMIN | CONN | SLOW | DANGER},
+      {"client|pause", ADMIN | CONN | SLOW | DANGER},
+      {"client|unpause", ADMIN | CONN | SLOW | DANGER},
+      {"client|no-evict", ADMIN | CONN | SLOW | DANGER},
+  };
+  return subs;
+}
 
 const CommandMeta* command_meta(std::string_view name) {
   static const std::unordered_map<std::string_view, const CommandMeta*> by_name = [] {

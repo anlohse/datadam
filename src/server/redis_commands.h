@@ -51,6 +51,7 @@ struct alignas(64) ThreadStats {
 struct ServerStats {
   std::atomic<uint64_t> connected_clients{0};
   std::atomic<uint64_t> total_connections{0};
+  std::atomic<uint64_t> rejected_connections{0};  // past maxclients
   PerThread<ThreadStats> threads;
   // Rates over the last second, sampled by the server (0 without one).
   std::atomic<uint64_t> instantaneous_ops{0};
@@ -101,6 +102,10 @@ class ServerContext {
   std::atomic<bool> auth_required;
   // protected-mode: see protected_mode_refuses.
   std::atomic<bool> protected_mode;
+  // maxclients, client-query-buffer-limit and tcp-keepalive (Config).
+  std::atomic<uint64_t> maxclients;
+  std::atomic<uint64_t> query_buffer_limit;
+  std::atomic<unsigned> tcp_keepalive;
   // Loads keys for reads deferred off the I/O threads; set by the Server
   // while it runs (null: reads go to disk on the I/O thread).
   ReadPool* read_pool = nullptr;
@@ -212,6 +217,9 @@ void start_session(ServerContext& ctx, ClientState& client);
 // the default user needs no password, unless it comes from the loopback
 // interface. A TLS connection with a verified client certificate passes too.
 bool protected_mode_refuses(const ServerContext& ctx, std::string_view peer, bool verified_certificate = false);
+// enable-protected-configs: whether this client may choose where the server
+// writes (CONFIG SET backup-dir, BACKUP outside backup-dir).
+bool protected_configs_allowed(const ServerContext& ctx, const ClientState& client);
 inline constexpr std::string_view kProtectedModeError =
     "DENIED datadam is running in protected mode because protected mode is enabled and no password is set for "
     "the default user. In this mode connections are only accepted from the loopback interface. To accept "
@@ -219,6 +227,8 @@ inline constexpr std::string_view kProtectedModeError =
     "or ACL SETUSER default); 2) disable protected mode with 'CONFIG SET protected-mode no' from the loopback "
     "interface (and CONFIG REWRITE to keep it), making sure datadam is not reachable from the internet; 3) "
     "start the server with '--protected-mode no', or set 'protected-mode no' in its configuration file.";
+// A connection past maxclients gets this, then is closed.
+inline constexpr std::string_view kMaxClientsError = "ERR max number of clients reached";
 // CLIENT LIST style description of a connection (also used by ACL LOG).
 std::string client_info(const ClientState& client);
 // Copies what CLIENT LIST shows of a connection (name, user...) to its entry.

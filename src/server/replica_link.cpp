@@ -5,9 +5,12 @@
 
 #include <atomic>
 #include <format>
+#include <functional>
 #include <stdexcept>
 
+#include "server/acl.h"
 #include "server/asio_util.h"
+#include "server/command.h"
 #include "server/resp.h"
 #include "server/tls.h"
 #include "storage/data_keys.h"
@@ -441,12 +444,14 @@ asio::awaitable<void> stream_wal(ServerContext& ctx, Stream& stream, uint64_t re
       append_array(out, {"wal", next_text, b.data});
     }
     if (!co_await flush(stream, out)) co_return;
+    ctx.repl.replica_sent(replica, next);
     last_sent = steady_time_ms();
   }
 }
 
 template <class Stream>
-asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t replica, std::string in) {
+asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t replica, std::string in,
+                                std::function<bool()> may_hand_over) {
   std::vector<std::string_view> cmd;
   std::string error;
   for (;;) {
@@ -462,7 +467,12 @@ asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t rep
       } else if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "failover-ack")) {
         ctx.repl.failover_ack(replica);
       } else if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "handoff")) {
-        if (ctx.handoff) ctx.handoff(replica);
+        if (!may_hand_over()) {
+          log_warn("replication: replica {} asked for the hand-over, but its user may not run FAILOVER: refused",
+                   replica);
+        } else if (ctx.handoff) {
+          ctx.handoff(replica);
+        }
       }
     }
     consume(in, pos);
@@ -530,8 +540,20 @@ asio::awaitable<void> serve_replica(ServerContext& ctx, Stream& stream, ClientSt
       append_array(out, {"snapend"});
     }
     if (!co_await flush(stream, out)) co_return;
+    ctx.repl.replica_sent(replica, next);
     ctx.repl.replica_state(replica, "online");
-    co_await first_to_end(stream_wal(ctx, stream, replica, next), read_acks(ctx, stream, replica, std::move(in)));
+    // A hand-over makes this server follow the replica: the same as FAILOVER
+    // TO it, so only for a user that may run FAILOVER (a replication-only user
+    // may not), as it is when the replica asks.
+    std::string user = client.user ? client.user->name : "";
+    auto may_hand_over = [&ctx, user] {
+      if (user.empty()) return true;
+      auto u = ctx.acl.find(user);
+      const CommandSpec* spec = find_command("failover");
+      return u && spec && u->may_run("failover", *spec, "");
+    };
+    co_await first_to_end(stream_wal(ctx, stream, replica, next),
+                          read_acks(ctx, stream, replica, std::move(in), may_hand_over));
   } catch (const std::exception& e) {
     log_warn("replication: replica {}: {}", client.addr, e.what());
   }

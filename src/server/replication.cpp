@@ -198,6 +198,9 @@ void ReplicationState::replica_ack(uint64_t id, uint64_t offset, RocksStorage& s
     std::lock_guard lock(mu_);
     for (auto& r : replicas_) {
       if (r.id == id) {
+        // Never past what was sent: a replica claiming more would make WAIT
+        // (and FAILOVER's catch-up) count writes it never got.
+        offset = std::min(offset, r.sent);
         r.ack_offset = offset;
         r.last_ack_ms = steady_time_ms();
         r.needs = offset;  // after a reconnection it continues from what it applied
@@ -262,9 +265,12 @@ std::optional<uint64_t> ReplicationState::take_failover(uint64_t replica, uint64
 
 void ReplicationState::failover_ack(uint64_t replica) {
   std::lock_guard lock(mu_);
-  failover_taken_by_ = replica;
   for (auto& r : replicas_) {
-    if (r.id == replica) r.failover_ok = true;
+    // Only the replica that was asked, once it was asked.
+    if (r.id == replica && r.failover_sent) {
+      r.failover_ok = true;
+      failover_taken_by_ = replica;
+    }
   }
 }
 
@@ -297,6 +303,13 @@ void ReplicationState::replica_needs(uint64_t id, uint64_t seq, RocksStorage& st
     if (r.id == id) r.needs = seq;
   }
   hold_wal(storage);
+}
+
+void ReplicationState::replica_sent(uint64_t id, uint64_t next) {
+  std::lock_guard lock(mu_);
+  for (auto& r : replicas_) {
+    if (r.id == id) r.sent = next;
+  }
 }
 
 void ReplicationState::remove_replica(uint64_t id, RocksStorage& storage) {

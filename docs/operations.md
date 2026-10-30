@@ -548,9 +548,15 @@ compaction do not appear in the change feed; that is why its `set` and `meta` re
 replies once it is complete:
 
 ```text
-> BACKUP /var/backups/datadam/2026-10-23
+> BACKUP 2026-10-23
 OK
 ```
+
+`path` is inside `backup-dir` (a relative path is taken from there; `backup-dir /var/backups/datadam` in the
+example). A path outside it is refused (`ERR BACKUP path '...' is not inside backup-dir`), and without
+`backup-dir` so is every `BACKUP`, unless `enable-protected-configs` lets the client choose any path (`yes`,
+or `local` from the loopback interface): as in Redis 7, where the server writes is set in its configuration
+file, not by clients.
 
 It is a RocksDB checkpoint: the memtables are flushed, then every SST file is hard-linked into `path`, so on the
 same file system it takes about the time of the flush and almost no space at first (the files are shared with

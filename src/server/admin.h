@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -23,6 +24,10 @@ namespace datadam {
 class Subscriber;
 
 // Consistent copies of the database (RocksDB checkpoints).
+// `path` as a directory inside `dir` (relative paths are taken from there),
+// or nothing if it would be outside it (.., another root, a symbolic link out).
+std::optional<std::string> backup_path_inside(const std::string& dir, const std::string& path);
+
 class Backups {
  public:
   struct Status {

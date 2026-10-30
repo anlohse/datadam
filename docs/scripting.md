@@ -204,18 +204,23 @@ Scripts run one at a time. Keep them short: while one runs, the whole server wai
   stops the server. With no script running, the reply is `NOTBUSY No scripts in execution right now.`
 
 The check for `SCRIPT KILL` runs every 100,000 Lua instructions, so a script stuck inside one long command
-call (a huge `SORT`, a `KEYS *` on a big database) stops only after that call returns.
+call (a huge `SORT`, a `KEYS *` on a big database) stops only after that call returns. Once killed, a script
+gets the error again at every instruction, so catching it with `pcall` does not keep it running.
 
 ## The sandbox
 
 Scripts cannot reach files, processes, the network, or the server's memory:
 
 - Not available: `io`, `os` (except `os.clock`), `package`, `require`, `module`, `dofile`, `loadfile`, `load`,
-  `loadstring` (which accept bytecode), `debug`, `print`, `jit` and LuaJIT's `ffi`.
+  `loadstring` (which accept bytecode), `debug`, `print`, `jit`, `getfenv`, `setfenv` and LuaJIT's `ffi`.
 - Globals cannot be created or read when they do not exist; use `local` variables. `KEYS` and `ARGV` are
   set for each script.
-- Scripts share one Lua state, as in Redis: a script must not rely on what an earlier one left, and since
-  globals cannot be created, it cannot leave anything but changes to the standard tables.
+- Scripts share one Lua state, as in Redis, whichever user runs them. So, as in Redis 7, the globals and the
+  libraries (`redis`, `cjson`, `string`, `table`, `math`, `os`, `bit`, `coroutine`) are read-only:
+  `redis.call = ...`, `string.rep = nil`, `rawset(redis, ...)` or `setmetatable(redis, ...)` fail with
+  `Attempt to modify a readonly table`, and their metatables (the strings' too) are hidden. A script cannot
+  change what the next one finds; a replaced `redis.call` would have run in other users' scripts, with their
+  permissions. A script's own tables are its own to change.
 
 The interpreter is LuaJIT with its JIT compiler turned off (so `SCRIPT KILL` works), which runs Lua 5.1
 code as Redis does.

@@ -137,15 +137,18 @@ void cmd_srandmember(Cmd& c) {
   Members all;
   if (!read_collection(c, c.args[1], kSet, true, [&](Txn& t) { all = all_members(t); })) return;
   if (!count) return all.empty() ? c.r.null() : c.r.bulk(all[rng()() % all.size()]);
-  Members picked;
-  if (*count >= 0) {
-    std::sample(all.begin(), all.end(), std::back_inserter(picked), static_cast<size_t>(*count), rng());
-    std::shuffle(picked.begin(), picked.end(), rng());
-  } else if (!all.empty()) {
+  if (*count < 0) {
+    // Members may repeat: written as they are picked, not copied first.
     uint64_t n = *count == INT64_MIN ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(-*count);
     if (n > 1'000'000'000) return c.r.error(kMustBePositive);
-    for (uint64_t i = 0; i < n; ++i) picked.push_back(all[rng()() % all.size()]);
+    if (all.empty()) n = 0;
+    c.r.array(n);
+    for (uint64_t i = 0; i < n; ++i) c.r.bulk(all[rng()() % all.size()]);
+    return;
   }
+  Members picked;
+  std::sample(all.begin(), all.end(), std::back_inserter(picked), static_cast<size_t>(*count), rng());
+  std::shuffle(picked.begin(), picked.end(), rng());
   c.r.array(picked.size());
   for (const auto& m : picked) c.r.bulk(m);
 }

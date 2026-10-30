@@ -20,7 +20,11 @@ class RespParser {
   // Parses one request starting at buf[pos]. On Ok, `args` holds views into
   // `buf` and pos is advanced past the request. An Ok with no args is an empty
   // line or "*0", which the caller should skip.
-  static Status parse(std::string_view buf, size_t& pos, std::vector<std::string_view>& args, std::string& error);
+  // On Incomplete, *need (if given) is a size buf must reach before the
+  // request can be complete: parsing it again sooner only walks the same
+  // arguments again (a request trickling in would cost quadratic time).
+  static Status parse(std::string_view buf, size_t& pos, std::vector<std::string_view>& args, std::string& error,
+                      size_t* need = nullptr);
 };
 
 // Appends RESP2/RESP3 replies to an output buffer.

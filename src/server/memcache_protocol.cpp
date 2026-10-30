@@ -1,6 +1,7 @@
 #include "server/memcache_protocol.h"
 
 #include <format>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -30,6 +31,7 @@ int64_t expire_at_from(int64_t exptime, int64_t now_ms) {
   if (exptime == 0) return 0;
   if (exptime < 0) return kAlreadyExpired;
   if (exptime <= kRelativeExpiryLimit) return now_ms + exptime * 1000;
+  if (exptime > std::numeric_limits<int64_t>::max() / 1000) return 0;  // past any date: as never
   int64_t at = exptime * 1000;
   return at <= now_ms ? kAlreadyExpired : at;
 }

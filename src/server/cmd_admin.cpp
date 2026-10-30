@@ -38,9 +38,21 @@ void cmd_bgsave(Cmd& c) {
 }
 
 // BACKUP path: datadam's own; a consistent copy of the database at path.
+// Unless enable-protected-configs lets this client choose any path, it is a
+// directory inside backup-dir (a relative path is taken from there).
 void cmd_backup(Cmd& c) {
+  std::string path(c.args[1]);
+  if (!protected_configs_allowed(c.ctx, c.client)) {
+    std::string dir = c.ctx.settings().backup_dir;
+    if (dir.empty()) {
+      return c.r.error("ERR BACKUP writes inside backup-dir, which is not set (or set enable-protected-configs)");
+    }
+    auto inside = backup_path_inside(dir, path);
+    if (!inside) return c.r.error(std::format("ERR BACKUP path '{}' is not inside backup-dir", path));
+    path = *inside;
+  }
   c.db().commit_active_batch();
-  std::string error = c.ctx.backups.backup(std::string(c.args[1]));
+  std::string error = c.ctx.backups.backup(path);
   if (!error.empty()) return c.r.error(error);
   c.r.ok();
 }

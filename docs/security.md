@@ -71,7 +71,8 @@ Once the `default` user needs a password (or is `off`), every new connection mus
   `NOAUTH Authentication required.`
 - Before logging in, a request larger than 16 KB is refused with
   `ERR Protocol error: unauthenticated request too big` and the connection is closed, so an anonymous client
-  cannot make the server buffer large requests.
+  cannot make the server buffer large requests. After logging in, the limit is `client-query-buffer-limit`
+  (1 GB). Connections past `maxclients` (10,000) are refused, logged in or not.
 - `AUTH password` logs in as `default`; `AUTH username password` logs in as any user;
   `HELLO 3 AUTH username password` logs in and switches to RESP3 in one step. `HELLO` without `AUTH` on a
   connection that has not logged in replies `NOAUTH HELLO must be called with the client already
@@ -127,7 +128,7 @@ connection must log in as a named user.
 | `resetpass` | Remove all passwords and `nopass`: nobody can log in as the user with a password. |
 | `~pattern` | Keys matching the glob pattern may be read and written. |
 | `%R~pattern` | Keys matching the pattern may only be read. |
-| `%W~pattern` | Keys matching the pattern may only be written. `%RW~pattern` equals `~pattern`. |
+| `%W~pattern` | Keys matching the pattern may only be written. `%RW~pattern` equals `~pattern`. Writes that also return what the key held (`GETSET`, `GETDEL`, `GETEX`, the `INCR` family, `HINCRBY`, `ZINCRBY`, the `POP` commands, `JSON.NUMINCRBY`, `JSON.ARRPOP`) or move it to another key (`RENAME`, `SMOVE`, `LMOVE`, `RPOPLPUSH`) need read access too, as in Redis. |
 | `allkeys` | Same as `~*`; replaces the other key patterns. |
 | `resetkeys` | Remove all key patterns. |
 | `+command`, `-command` | Allow or deny a command. |
@@ -192,8 +193,8 @@ membership follow Redis, so rule sets written for Redis mean the same here, with
 | `@pubsub` | `SUBSCRIBE`, `PSUBSCRIBE`, `SSUBSCRIBE`, the unsubscribe commands, `PUBLISH`, `SPUBLISH`, `PUBSUB`. |
 | `@transaction` | `MULTI`, `EXEC`, `DISCARD`, `WATCH`, `UNWATCH`. |
 | `@blocking` | `BLPOP`, `BRPOP`, `BLMOVE`, `BRPOPLPUSH`, `BLMPOP`, `BZPOPMIN`, `BZPOPMAX`, `BZMPOP`. |
-| `@admin` | `CONFIG`, `ACL`, `SAVE`, `BGSAVE`, `CACHE`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.INFO`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`. |
-| `@dangerous` | `CONFIG`, `ACL`, `INFO`, `KEYS`, `FLUSHDB`, `FLUSHALL`, `SAVE`, `BGSAVE`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`. |
+| `@admin` | `CONFIG`, `ACL`, `SAVE`, `BGSAVE`, `BACKUP`, `SHUTDOWN`, `MONITOR`, `SLOWLOG`, `LASTSAVE`, `FAILOVER`, `CACHE`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.INFO`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`, and `CLIENT KILL`, `CLIENT LIST`, `CLIENT PAUSE`, `CLIENT UNPAUSE`, `CLIENT NO-EVICT` (the rest of `CLIENT` is `@connection` only). |
+| `@dangerous` | `CONFIG`, `ACL`, `INFO`, `KEYS`, `FLUSHDB`, `FLUSHALL`, `SAVE`, `BGSAVE`, `BACKUP`, `SHUTDOWN`, `MONITOR`, `FAILOVER`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`, and the admin subcommands of `CLIENT` above. |
 | `@connection` | `PING`, `ECHO`, `QUIT`, `SELECT`, `AUTH`, `HELLO`, `CLIENT`, `COMMAND`. |
 | `@fast`, `@slow` | As in Redis. |
 | `@all` | Every command. |
@@ -207,6 +208,16 @@ see [Lua scripting](scripting.md#permissions).
 
 Redis categories for features datadam does not have (`@stream`, `@bitmap`, `@hyperloglog`, `@geo`) are
 accepted and contain no commands, so Redis rule sets such as `+@all -@stream` load unchanged.
+
+A category rule applies to the `CLIENT` subcommands listed there on their own: `+@all -@admin` leaves
+`CLIENT SETNAME` and `CLIENT ID` but not `CLIENT KILL`, which reaches other users' connections; `+client`
+grants every subcommand again. `ACL SETUSER` refuses rules with spaces or control characters, except
+passwords (`>` and `<`), since rules are written back space-separated.
+
+Changing or deleting a user takes effect on its open connections at their next command. A connection that only
+listens (subscribed with `SUBSCRIBE`) sends no commands: it keeps receiving messages on the channels it
+subscribed to until it disconnects. Close such connections with `CLIENT KILL USER <name>` after revoking
+channel permissions.
 
 `WATCH` needs read permission on its keys, and the commands queued after `MULTI` are checked (command and
 keys) when they are queued: a refusal there makes `EXEC` reply `EXECABORT`. Channel refusals reply
@@ -440,7 +451,9 @@ ACL SETUSER replicator on >repl-secret +ping +replconf +replsync
 ```
 
 The replication stream carries every key and every change, whatever the user's key patterns, so treat the
-replication user as a full-access credential. By default the replica connects over plain TCP, so
+replication user as a full-access credential. It cannot make the primary step down, though: the primary hands
+over to a replica (`promotion-handoff`) only when the replica's user may run `FAILOVER` (add `+failover` where
+replicas use the hand-over), and a replica's acknowledgments count only up to what the primary sent it. By default the replica connects over plain TCP, so
 credentials and data cross the network unencrypted. With `tls-replication yes` it connects to the primary's
 TLS port instead, verifies the primary's certificate (CA and host name) and presents its own, which the
 primary can require (`tls-auth-clients yes`) and use as its login (`tls-auth-clients-user cn`). See

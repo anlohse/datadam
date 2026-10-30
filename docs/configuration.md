@@ -45,9 +45,11 @@ like `datadam: datadam.conf:7: invalid value 'x' for 'port'`, `datadam: unknown 
 - One setting per line: the option name, whitespace, the value. Option names are case-insensitive.
 - A line whose first non-blank character is `#` is a comment. Blank lines are ignored. Windows line endings
   are accepted.
-- A setting line must have exactly two words. There are no inline comments (`port 6379 # main` is an error,
-  `expected 'key value'`) and no quoting, so a value cannot contain spaces. Lists use commas
-  (`tls-protocols TLSv1.2,TLSv1.3`).
+- A setting line must have exactly two words, or the option and one value in double quotes, which may hold
+  spaces (`backup-dir "/mnt/my backups"`; `\"` and `\\` inside stand for `"` and `\`). `CONFIG REWRITE`
+  writes values that need it that way. There are no inline comments (`port 6379 # main` is an error,
+  `expected 'key value'`). Lists use commas (`tls-protocols TLSv1.2,TLSv1.3`). No value may contain control
+  characters (line breaks, tabs...).
 - Two exceptions take more words: `replicaof <host> <port>` (or `slaveof`) and `user <name> <rule>...`.
 - When an option appears twice, the later line wins. `user` lines accumulate: each one defines a user.
 
@@ -85,8 +87,11 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 
 | Option | Type | Default | Runtime | Description |
 |---|---|---|---|---|
-| `bind` | IP address | `0.0.0.0` | no | Address every listener binds to (Redis, TLS and memcache). One literal IPv4 or IPv6 address; host names are not resolved. |
+| `bind` | IP address | `0.0.0.0` | no | Address every listener binds to (Redis, TLS, memcache and metrics). One literal IPv4 or IPv6 address; host names are not resolved. |
 | `protected-mode` | boolean | `yes` (`no` in the Docker image) | yes | While the `default` user needs no password, refuse clients that are not on the loopback interface (TLS clients with a verified certificate pass). See [Security](security.md#protected-mode). |
+| `maxclients` | 1–1000000 | `10000` | yes | Most connections at once (Redis, TLS, memcache and replicas together). One more gets `ERR max number of clients reached` (memcache: `SERVER_ERROR`) and is closed; `INFO stats` counts them in `rejected_connections`. Keep it under the process's file-descriptor limit (`ulimit -n`): past that, new connections wait in the kernel until others close. |
+| `client-query-buffer-limit` | size, at least `1mb` | `1gb` | yes | Most input a client may send for one request that is not complete yet; past it the client gets `ERR Protocol error: client query buffer limit reached` and is closed. Before it authenticates, a client may send at most 16 KB. |
+| `tcp-keepalive` | seconds, 0–604800 | `300` | yes | TCP keepalive on client connections: an idle connection is probed after this long, then every third of it, and closed after three unanswered probes, so the connection of a peer that vanished does not stay forever. `0`: off. Applies to connections accepted after a change. |
 | `port` | 0–65535 | `6379` | no | Plain-text Redis protocol port. `0` disables it, which requires `tls-port`. |
 | `memcache-port` | 0–65535 | `11211` | no | memcache text protocol port. `0` disables it. |
 | `metrics-port` | 0–65535 | `0` | no | HTTP port for monitoring: `GET /metrics` (Prometheus text format), `/health` and `/ready`. `0` disables it. See [Metrics over HTTP](operations.md#metrics-over-http). |
@@ -104,7 +109,8 @@ at startup, and `CONFIG SET` answers `can't set immutable config` for it.
 | `rocksdb-block-cache` | size | `64mb` | yes | Capacity of RocksDB's LRU block cache, shared by all column families. Index and filter blocks also live in it (in a high-priority half). This is what serves values larger than `cache-max-object-size` and collection elements from memory. |
 | `rocksdb-write-buffer` | size | `64mb` | yes | Size of one memtable, per column family. Up to 4 memtables per column family can exist while flushes catch up, in each of the 4 column families. It also bounds the live WAL, what a restart replays, at 8 times this. |
 | `rocksdb-background-jobs` | 1–256 | `4` | no | RocksDB background flush and compaction threads. |
-| `backup-dir` | path | empty | yes | Where `BGSAVE` writes its backups (RocksDB checkpoints), one directory per call named `yyyymmdd-hhmmss` (UTC). Empty: `BGSAVE` only flushes, like `SAVE`. See [Operations](operations.md#backups). |
+| `backup-dir` | path | empty | yes (protected) | Where `BGSAVE` writes its backups (RocksDB checkpoints), one directory per call named `yyyymmdd-hhmmss` (UTC), and where `BACKUP` writes. Empty: `BGSAVE` only flushes, like `SAVE`. `CONFIG SET` may change it only where `enable-protected-configs` allows. See [Operations](operations.md#backups). |
+| `enable-protected-configs` | `no`, `yes`, `local` | `no` | no | As in Redis 7: whether clients may choose where the server writes files. `no`: `CONFIG SET backup-dir` is refused (`ERR CONFIG SET failed (possibly related to argument 'backup-dir') - can't set protected config`) and `BACKUP <path>` writes only inside `backup-dir`. `local`: allowed from loopback connections. `yes`: allowed from any. |
 | `backup-keep` | 0–100000 | `7` | yes | After a `BGSAVE`, only this many of the newest backups in `backup-dir` are kept; `0` keeps them all. |
 
 Every write reaches the WAL before its reply is sent, whatever the `fsync` mode, so a crash of the process
@@ -287,7 +293,8 @@ The options it accepts are the ones marked "Runtime: yes" above: `fsync`, `write
 `rocksdb-block-cache`, `rocksdb-write-buffer`, `cache-min-memory`, `cache-max-idle`, `cache-max-age`,
 `cache-on-write`, `cache-admission`, `log-level`, `requirepass`, `acllog-max-len`, `masteruser`,
 `masterauth`, `backup-dir`, `backup-keep`, `slowlog-log-slower-than`, `slowlog-max-len`, `replica-priority`,
-`promotion-handoff`, `protected-mode`, and every `tls-*` option except `tls-port`.
+`promotion-handoff`, `protected-mode`, `maxclients`, `client-query-buffer-limit`, `tcp-keepalive`, and every
+`tls-*` option except `tls-port`.
 
 Errors:
 

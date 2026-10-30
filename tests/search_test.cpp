@@ -202,6 +202,14 @@ TEST(SearchQuery, ParsesTheRediSearchSyntax) {
                           "@n:[1 x]", "@tags:{$missing}", "@n:[1 2])"}) {
     EXPECT_FALSE(parse_search_query(bad, def, {}, &error)) << bad;
   }
+  // Nesting was parsed, run and freed recursively: deep enough, it overflowed the stack.
+  for (const std::string& deep : {std::string(100000, '(') + "@n:[1 2]" + std::string(100000, ')'),
+                                  std::string(100000, '-') + "@n:[1 2]", std::string(100000, '~') + "@n:[1 2]"}) {
+    error.clear();
+    EXPECT_FALSE(parse_search_query(deep, def, {}, &error));
+    EXPECT_NE(error.find("nests deeper"), std::string::npos) << error;
+  }
+  EXPECT_TRUE(parse_search_query("((-(@n:[1 2] | ~@tags:{a})))", def, {}, &error)) << error;
 }
 
 TEST_F(Search, HashTagsNumbersAndBooleanQueries) {

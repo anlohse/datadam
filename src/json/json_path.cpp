@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 #include <set>
+#include <unordered_set>
 
 namespace datadam {
 
@@ -178,7 +179,29 @@ class Parser {
   // ---- filters
   using Node = std::shared_ptr<const JsonFilter>;
 
+  // Filters are parsed, tested and freed recursively: their nesting and size
+  // are bounded, so a crafted path cannot overflow the stack.
+  static constexpr int kMaxFilterDepth = 64;
+  static constexpr int kMaxFilterNodes = 1024;
+
+  struct Nested {
+    Parser& p;
+    explicit Nested(Parser& parser) : p(parser) { ++p.depth_; }
+    ~Nested() { --p.depth_; }
+  };
+  bool too_deep() {
+    if (depth_ <= kMaxFilterDepth) return false;
+    fail(std::format("filters nest deeper than {} levels", kMaxFilterDepth));
+    return true;
+  }
+  bool too_many_nodes() {
+    if (++nodes_ <= kMaxFilterNodes) return false;
+    fail(std::format("filters have more than {} terms", kMaxFilterNodes));
+    return true;
+  }
+
   Node binary(JsonFilter::Kind kind, Node a, Node b) {
+    if (too_many_nodes()) return nullptr;
     auto n = std::make_shared<JsonFilter>();
     n->kind = kind;
     n->a = std::move(a);
@@ -187,6 +210,8 @@ class Parser {
   }
 
   Node disjunction() {
+    Nested nested(*this);  // ( ... ) and @[?...] inside a filter come back here
+    if (too_deep()) return nullptr;
     Node left = conjunction();
     while (left && eat("||")) {
       Node right = conjunction();
@@ -210,6 +235,8 @@ class Parser {
     skip_spaces();
     if (peek() == '!' && peek(1) != '=') {
       ++pos_;
+      Nested nested(*this);
+      if (too_deep()) return nullptr;
       Node inner = unary();
       return inner ? binary(JsonFilter::Kind::Not, inner, nullptr) : nullptr;
     }
@@ -229,7 +256,7 @@ class Parser {
       if (s_.substr(pos_, op.size()) == op) {
         pos_ += op.size();
         Node right = operand();
-        if (!right) return nullptr;
+        if (!right || too_many_nodes()) return nullptr;
         auto n = std::make_shared<JsonFilter>();
         n->kind = JsonFilter::Kind::Compare;
         n->op = std::string(op);
@@ -249,6 +276,7 @@ class Parser {
 
   Node operand() {
     skip_spaces();
+    if (too_many_nodes()) return nullptr;
     auto n = std::make_shared<JsonFilter>();
     char c = peek();
     if (c == '@' || c == '$') {
@@ -294,6 +322,8 @@ class Parser {
   std::string_view s_;
   size_t pos_ = 0;
   std::string* error_;
+  int depth_ = 0;  // filters being parsed inside one another
+  int nodes_ = 0;  // filter terms so far
 
  public:
   size_t& pos() { return pos_; }
@@ -406,13 +436,13 @@ void apply(const JsonSelector& sel, const Match& m, Json& root, std::vector<Matc
       if (step > 0) {
         int64_t lo = std::clamp<int64_t>(norm(sel.start.value_or(0)), 0, n);
         int64_t hi = std::clamp<int64_t>(norm(sel.end.value_or(n)), 0, n);
-        for (int64_t i = lo; i < hi; i += step) {
+        for (int64_t i = lo; i < hi; i = step < hi - i ? i + step : hi) {  // never past hi: no overflow
           child(m, v[static_cast<size_t>(i)], {}, static_cast<size_t>(i), static_cast<size_t>(i), out);
         }
       } else {
         int64_t hi = std::clamp<int64_t>(sel.start ? norm(*sel.start) : n - 1, -1, n - 1);
         int64_t lo = std::clamp<int64_t>(sel.end ? norm(*sel.end) : -1, -1, n - 1);
-        for (int64_t i = hi; i > lo; i += step) {
+        for (int64_t i = hi; i > lo; i = step > lo - i ? i + step : lo) {
           child(m, v[static_cast<size_t>(i)], {}, static_cast<size_t>(i), static_cast<size_t>(i), out);
         }
       }
@@ -429,12 +459,15 @@ void apply(const JsonSelector& sel, const Match& m, Json& root, std::vector<Matc
   }
 }
 
-// The node and everything below it, in document order.
-std::vector<Match> self_and_descendants(const Match& m) {
+// The node and everything below it, in document order, but not what `seen`
+// holds (and adds what it returns): the nodes of one step overlap when some
+// are below others, and chained ..s would otherwise multiply them.
+std::vector<Match> self_and_descendants(const Match& m, std::unordered_set<const Json*>& seen) {
   std::vector<Match> out, stack{m};
   while (!stack.empty()) {
     Match cur = std::move(stack.back());
     stack.pop_back();
+    if (!seen.insert(cur.value).second) continue;  // it and all below it are out already
     std::vector<Match> kids;
     children(cur, kids);
     out.push_back(std::move(cur));
@@ -484,14 +517,17 @@ std::vector<Match> JsonPath::run(Json& doc, Json& root, size_t steps) const {
   for (size_t s = 0; s < steps && !cur.empty(); ++s) {
     const JsonStep& step = steps_[s];
     std::vector<Match> next;
+    std::unordered_set<const Json*> seen;
     for (const Match& m : cur) {
       if (step.descendants) {
-        for (const Match& d : self_and_descendants(m)) {
+        for (const Match& d : self_and_descendants(m, seen)) {
           for (const auto& sel : step.selectors) apply(sel, d, root, next);
         }
       } else {
         for (const auto& sel : step.selectors) apply(sel, m, root, next);
       }
+      // Unions of the same index ($[0,0][0,0]...) still double at each step.
+      if (next.size() > kMaxJsonPathMatches) throw JsonPathError(std::format("ERR path '{}' selects more than {} values", text_, kMaxJsonPathMatches));
     }
     cur = std::move(next);
   }
