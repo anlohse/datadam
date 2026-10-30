@@ -774,7 +774,7 @@ EOF
   t  "write with fsync always"  "OK" SET fsynced v
   t  "CONFIG SET back"          "OK" CONFIG SET fsync everysec cache-on-write yes cache-max-idle 5m
   tc "immutable parameter"      "can't set immutable config" CONFIG SET port 7000
-  tc "unknown parameter"        "Unknown option" CONFIG SET maxclients 10
+  tc "unknown parameter"        "Unknown option" CONFIG SET no-such-option 10
   tc "bad value"                "ERR CONFIG SET failed" CONFIG SET fsync sometimes
   tc "all or nothing"           "ERR CONFIG SET failed" CONFIG SET log-level debug cache-min-memory 99gb
   t  "nothing was applied"      $'log-level\ninfo' CONFIG GET log-level

@@ -551,8 +551,15 @@ TEST(ServerLimitsTest, MaxclientsQueryBufferAndTrickledRequests) {
     int refused = 0;
     for (int i = 0; i < 3; ++i) {
       more.push_back(std::make_unique<Client>(node.port()));
-      std::string reply = more.back()->text({"PING"});
-      if (reply == "ERR max number of clients reached") ++refused;
+      std::string reply;
+      try {
+        reply = more.back()->text({"PING"});
+      } catch (const std::exception&) {
+        // The server closed it with the PING unread: a reset, which on Windows
+        // can drop the error before it is read. Only a refusal closes it.
+        reply = "reset";
+      }
+      if (reply == "ERR max number of clients reached" || reply == "reset") ++refused;
       else EXPECT_EQ(reply, "PONG");
     }
     EXPECT_GE(refused, 2);
@@ -564,9 +571,12 @@ TEST(ServerLimitsTest, MaxclientsQueryBufferAndTrickledRequests) {
     // A request that grows past client-query-buffer-limit closes the connection.
     EXPECT_EQ(admin.text({"CONFIG", "SET", "client-query-buffer-limit", "1mb"}), "OK");
     EXPECT_TRUE(admin.run({"CONFIG", "SET", "client-query-buffer-limit", "1000"}).error);  // below 1mb
+    // One byte past it, and no more: bytes the server never reads would make
+    // its close a reset, which on Windows drops the reply before it is read.
     Client big(node.port());
-    big.send_raw("*1\r\n$3000000\r\n");
-    big.send_raw(std::string(1200000, 'x'));
+    std::string header = "*1\r\n$3000000\r\n";
+    big.send_raw(header);
+    big.send_raw(std::string((1 << 20) + 1 - header.size(), 'x'));
     Value v = big.receive();
     EXPECT_TRUE(v.error);
     EXPECT_EQ(v.text, "ERR Protocol error: client query buffer limit reached");
