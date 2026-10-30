@@ -169,7 +169,7 @@ void ObjectCache::grow(Shard& sh) {
 bool ObjectCache::insert(std::string_view key, const RecordView& rec, bool admit, bool pending) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
 
   bool replacing = false;
   if (Item* old = find(sh, h, key)) {
@@ -226,21 +226,21 @@ bool ObjectCache::insert(std::string_view key, const RecordView& rec, bool admit
 void ObjectCache::defer_miss(std::string_view key) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
   if (sh.stats.misses > 0) --sh.stats.misses;
 }
 
 void ObjectCache::confirm(std::string_view key) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
   if (Item* it = find(sh, h, key)) it->type &= static_cast<uint8_t>(~Item::kPendingBit);
 }
 
 bool ObjectCache::pending(std::string_view key) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
   Item* it = find(sh, h, key);
   return it != nullptr && it->pending();
 }
@@ -248,7 +248,7 @@ bool ObjectCache::pending(std::string_view key) {
 std::optional<int64_t> ObjectCache::idle_ms(std::string_view key) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
   Item* it = find(sh, h, key);
   if (it == nullptr) return std::nullopt;
   return steady_time_ms() - it->last_access;
@@ -257,14 +257,14 @@ std::optional<int64_t> ObjectCache::idle_ms(std::string_view key) {
 void ObjectCache::erase(std::string_view key) {
   uint64_t h = hash_bytes(key);
   Shard& sh = shard_for(h);
-  std::lock_guard lock(sh.mu);
+  SpinLockGuard lock(sh.mu);
   if (Item* it = find(sh, h, key)) remove(sh, it);
 }
 
 void ObjectCache::clear() {
   for (auto& shp : shards_) {
     Shard& sh = *shp;
-    std::lock_guard lock(sh.mu);
+    SpinLockGuard lock(sh.mu);
     for (Item*& head : sh.buckets) {
       while (head != nullptr) remove(sh, head);
     }
@@ -278,7 +278,7 @@ size_t ObjectCache::run_maintenance() {
   int64_t max_age = max_age_ms_.load(std::memory_order_relaxed);
   for (auto& shp : shards_) {
     Shard& sh = *shp;
-    std::lock_guard lock(sh.mu);
+    SpinLockGuard lock(sh.mu);
     int64_t now = steady_time_ms();
     int64_t unix_now = unix_time_ms();
 
@@ -318,7 +318,7 @@ CacheStats ObjectCache::stats() const {
   CacheStats total;
   for (const auto& shp : shards_) {
     const Shard& sh = *shp;
-    std::lock_guard lock(sh.mu);
+    SpinLockGuard lock(sh.mu);
     const CacheStats& s = sh.stats;
     total.hits += s.hits;
     total.misses += s.misses;
@@ -346,7 +346,7 @@ std::vector<CacheClassStats> ObjectCache::class_stats() const {
   for (size_t c = 0; c < out.size(); ++c) out[c].chunk_size = classes_.size(c);
   for (const auto& shp : shards_) {
     const Shard& sh = *shp;
-    std::lock_guard lock(sh.mu);
+    SpinLockGuard lock(sh.mu);
     for (size_t c = 0; c < out.size(); ++c) {
       out[c].pages += sh.slab->pages_in_class(c);
       out[c].items += sh.lru[c].count;

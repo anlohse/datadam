@@ -192,6 +192,9 @@ LARGE_WORKLOADS = [  # name, memtier arguments, seconds x
 LARGE_MEMTIER = "--threads=8 --clients=25 --data-size=1000 --random-data --distinct-client-seed --randomize"
 # Offered loads of the latency curve, below what the disk-bound runs reach.
 LARGE_RATES = [25_000, 50_000, 100_000]
+# `large --curve`: only the curve, finer, each point longer (the 2026-10-27
+# curve replayed the keys of the run before it: invalid).
+CURVE_RATES = [10_000, 20_000, 30_000, 40_000, 50_000, 60_000, 80_000]
 
 
 def scenario_large(outs, keys, value_bytes, seconds, settle_s, reps, servers, rates):
@@ -537,9 +540,13 @@ def main():
             scenario_memory(outs, reps=3, seconds=60, keys=5_000_000, servers=["datadam", "redis", "kvrocks"],
                             rates=RATES)
     elif cmd == "large":
-        # python cloud/cloud.py large [--pilot]: phase 3, datadam and Kvrocks
-        # (Redis keeps everything in memory) with ~200 GB on a 64 GB machine.
-        if "--pilot" in sys.argv:
+        # python cloud/cloud.py large [--pilot] [--curve]: phase 3, datadam and
+        # Kvrocks (Redis keeps everything in memory) with ~200 GB on a 64 GB
+        # machine; --curve: the load, then only the latency curve (~1.5 h).
+        if "--curve" in sys.argv:
+            scenario_large(outs, keys=200_000_000, value_bytes=1000, seconds=120, settle_s=300, reps=0,
+                           servers=["datadam", "kvrocks"], rates=CURVE_RATES)
+        elif "--pilot" in sys.argv:
             scenario_large(outs, keys=2_000_000, value_bytes=1000, seconds=10, settle_s=10, reps=1,
                            servers=["datadam", "kvrocks"], rates=LARGE_RATES[:1])
         else:
