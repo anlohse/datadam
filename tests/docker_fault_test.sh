@@ -218,10 +218,18 @@ failover() {
 
 echo "faults: $pass passed, $fail failed"
 if [ "$fail" -gt 0 ]; then
-  for c in dd-crash dd-p dd-r1 dd-r2; do
-    docker inspect $c >/dev/null 2>&1 && { echo "--- $c"; docker logs $c 2>&1 | tail -15; }
+  # The sentinels' events (+switch-master, +convert-to-slave...) and the
+  # servers' logs without the retries that would fill them.
+  for c in dd-crash dd-p dd-r1 dd-r2 dd-s1 dd-s2 dd-s3; do
+    docker inspect $c >/dev/null 2>&1 || continue
+    echo "--- $c"
+    docker logs $c 2>&1 | grep -v -e 'refused REPLSYNC' -e 'Sentinel ID' | tail -40
+    n=$(docker logs $c 2>&1 | grep -c 'refused REPLSYNC')
+    [ "$n" = 0 ] || echo "(and $n refused REPLSYNC, the last: $(docker logs $c 2>&1 | grep 'refused REPLSYNC' | tail -1 | cut -c1-23))"
   done
 fi
 cleanup
+# The checkers ran as root in their containers.
+docker run --rm -v "$OUT_HOST":/out python:3.12-slim sh -c 'rm -rf /out/*' >/dev/null 2>&1
 rm -rf "$OUT"
 [ "$fail" -eq 0 ]

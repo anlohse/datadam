@@ -14,6 +14,7 @@
 #include "mem/slab_allocator.h"
 #include "storage/record.h"
 #include "util/hash.h"
+#include "util/spin.h"
 
 namespace datadam {
 
@@ -82,7 +83,7 @@ class ObjectCache {
   bool lookup(std::string_view key, Fn&& fn, bool count_stats = true, bool pending_ok = false) {
     uint64_t h = hash_bytes(key);
     Shard& sh = shard_for(h);
-    std::lock_guard lock(sh.mu);
+    SpinLockGuard lock(sh.mu);
     Item* it = find_live(sh, h, key, count_stats, pending_ok);
     if (it == nullptr) return false;
     fn(it->view());

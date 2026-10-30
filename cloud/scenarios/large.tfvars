@@ -3,6 +3,7 @@
 #   terraform -chdir=cloud/terraform apply -var-file=../scenarios/large.tfvars -var image=ghcr.io/anlohse/datadam:sha-<commit>
 #   python cloud/cloud.py large --pilot      (a few minutes: the loop works)
 #   python cloud/cloud.py large              (several hours: most of it loading)
+#   python cloud/cloud.py large --curve      (~1.5 h: the load, then only the latency curve)
 run_id    = "large"
 max_hours = 8
 nodes = {

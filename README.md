@@ -775,9 +775,14 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    acknowledged and the promoted one never got: with `promotion-handoff yes`, `REPLICAOF NO ONE` on a replica
    asks its primary to hand over, as `FAILOVER` does. In Docker, a `SENTINEL FAILOVER` under `WAIT 1` writes lost
    none and nothing synced in full (without it, 14,000 lost and two full syncs); CI runs that test.
+   Part of the CPU that mixed reads and writes left idle was a lock convoy on the object cache's shard locks:
+   GETs and SETs slept in `futex_wait` for locks held a fraction of a microsecond. They now spin first; in
+   Docker on 8 CPUs, pipelined mixed in memory made 5 times fewer context switches, with 13% less CPU per
+   operation.
    Next steps, from what those tests showed:
-   - the larger-than-memory latency curve again (that run's memtier replayed the same keys), and the ~25% of
-     CPU the write path leaves idle on 16 vCPUs;
+   - the larger-than-memory latency curve again (that run's memtier replayed the same keys:
+     `cloud.py large --curve`), and whether the ~40% of CPU left idle by mixed workloads on 16 vCPUs is gone
+     (not reproducible on the local machine);
    - a security review (limits, `CONFIG SET` paths), CodeQL and image scanning, more fuzz targets;
    - what the tests did not cover: client libraries' own suites (BullMQ, Sidekiq, redis-py, Redlock), a full or
      failing disk, partitions between clients and server, soaks of weeks, other instance types, and the
