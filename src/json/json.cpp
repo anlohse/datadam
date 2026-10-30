@@ -7,16 +7,40 @@
 
 namespace datadam {
 
+namespace {
+
+// How deep the text nests, counting brackets outside strings: a deep
+// document is refused before it is built (512 MB of '[' would be tens of GB
+// of nested arrays). Invalid JSON is the parser's to refuse.
+bool nests_too_deep(std::string_view text) {
+  int depth = 0;
+  bool in_string = false;
+  for (size_t i = 0; i < text.size(); ++i) {
+    char c = text[i];
+    if (in_string) {
+      if (c == '\\') ++i;
+      else if (c == '"') in_string = false;
+    } else if (c == '"') {
+      in_string = true;
+    } else if (c == '[' || c == '{') {
+      if (++depth > kMaxJsonDepth) return true;
+    } else if (c == ']' || c == '}') {
+      --depth;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 std::optional<Json> parse_json(std::string_view text, std::string* error) {
-  // The parser keeps its own stack (no recursion), so a deep document is
-  // rejected after parsing, before anything recursive touches it.
+  if (nests_too_deep(text)) {
+    *error = std::format("ERR JSON nests deeper than {} levels", kMaxJsonDepth);
+    return std::nullopt;
+  }
   Json v = Json::parse(text.begin(), text.end(), nullptr, false);
   if (v.is_discarded()) {
     *error = "ERR invalid JSON";
-    return std::nullopt;
-  }
-  if (json_depth(v) > kMaxJsonDepth) {
-    *error = std::format("ERR JSON nests deeper than {} levels", kMaxJsonDepth);
     return std::nullopt;
   }
   return v;

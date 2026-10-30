@@ -88,6 +88,41 @@ TEST(JsonPath, LegacyAndErrors) {
   }
 }
 
+TEST(JsonPath, CraftedPathsAreBounded) {
+  std::string error;
+  // Nested filters were parsed, tested and freed recursively: a long enough
+  // run of '(' or '!' overflowed the stack.
+  for (const std::string& deep : {"$[?" + std::string(100000, '(') + "@.a" + std::string(100000, ')') + "]",
+                                  "$[?" + std::string(100000, '!') + "@.a]",
+                                  "$" + [] { std::string s; for (int i = 0; i < 100; ++i) s += "[?@"; return s; }()}) {
+    error.clear();
+    EXPECT_FALSE(JsonPath::parse(deep, &error));
+    EXPECT_NE(error.find("nest deeper"), std::string::npos) << error;
+  }
+  std::string chain = "$[?@.a";
+  for (int i = 0; i < 5000; ++i) chain += " && @.a";
+  error.clear();
+  EXPECT_FALSE(JsonPath::parse(chain + "]", &error));
+  EXPECT_NE(error.find("terms"), std::string::npos) << error;
+  EXPECT_TRUE(JsonPath::parse("$[?((@.a > 1 && !(@.b)) || @.c == 'x')]", &error)) << error;
+
+  // Chained ..s expanded every overlapping node again: 120 nested arrays and
+  // $..*..*..*..* made billions of matches. Each node is now visited once a step.
+  std::string nested = std::string(120, '[') + std::string(120, ']');
+  EXPECT_EQ(sel(nested, "$..*..*..*..*").size(), 116u);
+  EXPECT_EQ(sel(kStore, "$..*..author"), (V{"\"Rees\"", "\"Waugh\"", "\"Melville\""}));
+  // Unions of one index still double at each step: refused past the limit.
+  std::string doubling = "$";
+  for (int i = 0; i < 30; ++i) doubling += "[0,0]";
+  Json one = doc_of(std::string(30, '[') + "1" + std::string(30, ']'));
+  auto p = JsonPath::parse(doubling, &error);
+  ASSERT_TRUE(p) << error;
+  EXPECT_THROW(p->select(one), JsonPathError);
+  // A huge slice step stops at the end instead of overflowing.
+  EXPECT_EQ(sel("[1,2,3]", "$[1::9223372036854775807]"), V{"2"});
+  EXPECT_EQ(sel("[1,2,3]", "$[1::-9223372036854775807]"), V{"2"});
+}
+
 TEST(JsonPath, CreateAndErase) {
   Json doc = doc_of(R"({"a":{"x":1},"b":{"x":2},"c":3})");
   std::string error;
@@ -110,6 +145,12 @@ TEST(Json, DepthLimitAndFormat) {
   deep += std::string(200, ']');
   EXPECT_FALSE(parse_json(deep, &error));
   EXPECT_NE(error.find("128"), std::string::npos);
+  // Refused before it is built, even unclosed; brackets in strings do not count.
+  error.clear();
+  EXPECT_FALSE(parse_json(std::string(10'000'000, '['), &error));
+  EXPECT_NE(error.find("128"), std::string::npos);
+  std::string text = "[\"" + std::string(500, '[') + "\\\"[\"]";
+  EXPECT_TRUE(parse_json(text, &error)) << error;
   Json d = doc_of(R"({"a":[1,{"b":true}],"e":{}})");
   EXPECT_EQ(dump_json(d), R"({"a":[1,{"b":true}],"e":{}})");
   JsonFormat f{"  ", "\n", " "};

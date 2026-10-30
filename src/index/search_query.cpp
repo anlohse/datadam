@@ -74,7 +74,18 @@ class QueryParser {
     return n;
   }
 
+  // Queries are parsed, run and freed recursively: their nesting is bounded,
+  // so a crafted one cannot overflow the stack.
+  static constexpr int kMaxNesting = 64;
+  struct Nested {
+    QueryParser& p;
+    explicit Nested(QueryParser& parser) : p(parser) { ++p.depth_; }
+    ~Nested() { --p.depth_; }
+  };
+
   std::optional<SearchNode> parse_unary() {
+    Nested nested(*this);  // -, ~ and ( ... ) all come back here
+    if (depth_ > kMaxNesting) return fail(std::format("the query nests deeper than {} levels", kMaxNesting));
     skip_ws();
     if (peek() == '-') {
       ++pos_;
@@ -251,6 +262,7 @@ class QueryParser {
   const SearchParams& params_;
   size_t pos_ = 0;
   std::string error_;
+  int depth_ = 0;  // clauses being parsed inside one another
 };
 
 }  // namespace

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,6 +13,15 @@
 namespace datadam {
 
 struct JsonFilter;  // a ?(...) expression, see json_path.cpp
+
+// The most values one path may select, at any of its steps.
+inline constexpr size_t kMaxJsonPathMatches = 1 << 20;
+
+// A path that selects more than that: the message is the reply's error.
+class JsonPathError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
 
 // One selector of a path step: a member name, an array index (negative:
 // from the end), *, a slice [start:end:step], or a filter ?(...).

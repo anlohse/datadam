@@ -18,6 +18,7 @@
 #define DATADAM_GETPID getpid
 #endif
 
+#include "json/json_path.h"
 #include "server/command.h"
 #include "server/read_pool.h"
 #include "util/clock.h"
@@ -1213,6 +1214,8 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
     client.retry_later = true;
     client.load_key = std::move(e.key);
   } catch (const IndexConstraintError& e) {
+    reply.error(e.what());
+  } catch (const JsonPathError& e) {
     reply.error(e.what());
   } catch (const StorageError& e) {
     reply.error(std::format("ERR storage error: {}", e.what()));
