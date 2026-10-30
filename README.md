@@ -765,9 +765,13 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    grew to 10 GB.
    Short versions of the crash and failover phases run in CI (`tests/docker_fault_test.sh`), a check for each
    of those bugs that could come back unseen.
+   The CPU per read with more data than memory, 2 to 3 times Kvrocks's in phase 3: most of it went to waking a
+   read-pool thread for every key not in the object cache, even when the OS had its block in the page cache.
+   Such a read is now served on the I/O thread (`page-cache-reads`, `preadv2` with `RWF_NOWAIT`); in Docker,
+   GETs that the page cache serves went from 56–79 to 21 µs of CPU each, and uniform reads of 6 GB through a
+   1 GB container from 133–170 to 78–99 µs (Kvrocks 97–99), with 1.7 times the throughput. Not measured in
+   the cloud again; there more of the reads reach the disk, and each of those still costs two thread wake-ups.
    Next steps, from what those tests showed:
-   - CPU per disk read, about 3 times Kvrocks's with more data than memory, the case datadam is for, and likely
-     what capped the soak's server at 60k operations a second;
    - the `SENTINEL FAILOVER` window: the old primary keeps taking writes, acknowledged by its other replicas,
      until Sentinel re-points it (~2 s of them lost in the test); the promoted replica could tell it to stop, as
      `FAILOVER` does, as an option;

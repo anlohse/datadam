@@ -57,6 +57,9 @@ struct Config {
   // Most keys one read thread loads with a single MultiGet when keys queue up
   // (1: one Get per key). Measured no faster on random keys, so off by default.
   unsigned read_batch = 1;
+  // Whether such a read is first tried on the I/O thread from the OS page
+  // cache (Linux, RWF_NOWAIT): only a block that is on disk goes to the pool.
+  bool page_cache_reads = true;
 
   // Persistence
   std::string dir = "./data";

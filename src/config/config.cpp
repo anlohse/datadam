@@ -166,6 +166,12 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     else return bad_value(key, value);
     return {};
   }
+  if (key == "page-cache-reads") {
+    auto b = parse_bool(value);
+    if (!b) return bad_value(key, value);
+    page_cache_reads = *b;
+    return {};
+  }
   if (key == "write-batching") {
     auto b = parse_bool(value);
     if (!b) return bad_value(key, value);
@@ -336,6 +342,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"io-threads", io_threads == 0 ? "auto" : std::to_string(io_threads)},
       {"read-threads", std::to_string(read_threads)},
       {"read-batch", std::to_string(read_batch)},
+      {"page-cache-reads", page_cache_reads ? "yes" : "no"},
       {"dir", dir},
       {"fsync", std::string(fsync_policy_name(fsync))},
       {"experimental-write-path", std::string(write_path_name(write_path))},

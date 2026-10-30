@@ -1363,14 +1363,15 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
         "instantaneous_output_kbps:{:.2f}\r\nkeyspace_hits:{}\r\nkeyspace_misses:{}\r\nevicted_keys:0\r\n"
         "total_error_replies:{}\r\nauth_failures:{}\r\n"
         "acl_access_denied:{}\r\ntls_connections:{}\r\ntls_handshake_failures:{}\r\ndeferred_reads:{}\r\nmemory_reads:{}\r\n"
-        "read_pool_loads:{}\r\nread_pool_batches:{}\r\nread_pool_joined:{}\r\nread_pool_queued:{}\r\n\r\n",
+        "page_cache_reads:{}\r\nread_pool_loads:{}\r\nread_pool_batches:{}\r\nread_pool_joined:{}\r\nread_pool_queued:{}\r\n\r\n",
         ctx.stats.total_connections.load(), ctx.stats.total_commands(), ctx.stats.instantaneous_ops.load(),
         ctx.stats.total_net_input_bytes(), ctx.stats.total_net_output_bytes(),
         static_cast<double>(ctx.stats.instantaneous_input_bps.load()) / 1024,
         static_cast<double>(ctx.stats.instantaneous_output_bps.load()) / 1024, ctx.db.keyspace_hits(),
         ctx.db.keyspace_misses(), ctx.stats.total_error_replies(), ctx.stats.auth_failures.load(),
         ctx.stats.acl_denied.load(), ctx.stats.tls_connections.load(), ctx.stats.tls_handshake_failures.load(),
-        ctx.db.deferred_reads(), ctx.db.memory_reads(), ctx.read_pool ? ctx.read_pool->loads() : 0,
+        ctx.db.deferred_reads(), ctx.db.memory_reads(), ctx.db.storage().page_cache_reads() ? 1 : 0,
+        ctx.read_pool ? ctx.read_pool->loads() : 0,
         ctx.read_pool ? ctx.read_pool->batches() : 0, ctx.read_pool ? ctx.read_pool->joined() : 0,
         ctx.read_pool ? ctx.read_pool->queued() : 0);
   }

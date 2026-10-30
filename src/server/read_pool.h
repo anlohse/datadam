@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "util/hash.h"
 #include "util/latency_histogram.h"
 
 namespace datadam {
@@ -51,6 +52,10 @@ class ReadPool {
     std::vector<Done> waiters;
     std::chrono::steady_clock::time_point since;
   };
+  struct KeyHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const { return static_cast<size_t>(hash_bytes(s)); }
+  };
 
   void run();
 
@@ -58,7 +63,7 @@ class ReadPool {
   mutable std::mutex mu_;
   std::condition_variable cv_;
   std::deque<std::string> queue_;
-  std::unordered_map<std::string, Flight> flights_;  // queued or loading
+  std::unordered_map<std::string, Flight, KeyHash, std::equal_to<>> flights_;  // queued or loading
   unsigned max_batch_;
   uint64_t loads_ = 0;
   uint64_t batches_ = 0;

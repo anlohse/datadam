@@ -144,6 +144,7 @@ See [Operations](operations.md#memory-and-cache-sizing) for sizing and
 |---|---|---|---|---|
 | `read-threads` | 0–1024 | `64` | no | Threads that load keys missing from the cache for plain Redis reads (`GET`, `MGET`, `EXISTS`, `STRLEN`, `GETRANGE`, `SUBSTR`, `TYPE`, `TTL`, `PTTL`, `EXPIRETIME`, `PEXPIRETIME`, `JSON.GET`, `JSON.MGET`, `JSON.TYPE`, `JSON.STRLEN`, `JSON.ARRLEN`, `JSON.ARRINDEX`, `JSON.OBJKEYS`, `JSON.OBJLEN`), so a disk read never holds an I/O thread. A key wanted by several clients at once is read once. `0` disables the pool: the I/O thread reads the disk itself. |
 | `read-batch` | 1–1024 | `1` | no | When more keys are queued than there are read threads, each thread takes up to this many and reads them with one RocksDB `MultiGet`. It saves CPU, but RocksDB reads different SST files one after another; on random keys it measured no faster than `1`. |
+| `page-cache-reads` | yes/no | `yes` | no | Linux: such a read whose blocks are in the OS page cache is served on the I/O thread (`preadv2` with `RWF_NOWAIT`); only a read that has to wait for the disk goes to the pool. Handing a read to the pool costs two thread wake-ups: on reads the page cache could serve, it took about 3 times the CPU. Elsewhere, and with `no`, only what RocksDB has in memory is read on the I/O thread. |
 
 See [Operations](operations.md#disk-reads-and-the-read-pool).
 
@@ -393,6 +394,7 @@ cache-admission yes
 # ---- read pool ----
 read-threads 64
 read-batch 1
+page-cache-reads yes
 
 log-level info
 
