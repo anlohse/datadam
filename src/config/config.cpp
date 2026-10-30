@@ -190,6 +190,12 @@ std::string Config::set(std::string_view key_in, std::string_view value) {
     protected_mode = *b;
     return {};
   }
+  if (key == "promotion-handoff") {
+    auto b = parse_bool(value);
+    if (!b) return bad_value(key, value);
+    promotion_handoff = *b;
+    return {};
+  }
   if (key == "replica-priority" || key == "slave-priority") {
     return set_number<unsigned>(key, value, &replica_priority, 0, 1000000);
   }
@@ -337,6 +343,7 @@ std::vector<std::pair<std::string, std::string>> Config::dump() const {
       {"tls-client-cert-file", tls_client_cert_file},
       {"tls-client-key-file", tls_client_key_file},
       {"replica-priority", std::to_string(replica_priority)},
+      {"promotion-handoff", promotion_handoff ? "yes" : "no"},
       {"memcache-port", std::to_string(memcache_port)},
       {"metrics-port", std::to_string(metrics_port)},
       {"io-threads", io_threads == 0 ? "auto" : std::to_string(io_threads)},

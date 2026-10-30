@@ -168,6 +168,7 @@ RocksDB writes its own diagnostic log to `LOG` in `dir`; `log-level` does not af
 | `tls-client-cert-file`, `tls-client-key-file` | path | empty | yes | The certificate and key a replica presents to its primary over TLS; empty: `tls-cert-file` / `tls-key-file`. |
 | `replica-priority` (alias `slave-priority`) | 0–1000000 | `100` | yes | Reported as `slave_priority` in `INFO replication`, for Redis Sentinel: the lowest non-zero priority is promoted first, `0` never. |
 | `masterauth` | text, no spaces | empty | yes | Password for the primary. Empty: no `AUTH` is sent. |
+| `promotion-handoff` | boolean | `no` | yes | `REPLICAOF NO ONE` on a replica that is streaming from its primary asks the primary to hand over, as `FAILOVER` does: the primary stops taking writes, waits for this replica to have them all, and follows it. Then no write the old primary acknowledged is missing on the new one, and its other replicas continue without a full sync. Without an answer within 5 s, and at once when the link is down, the replica becomes a primary on its own. Turn it on where `REPLICAOF NO ONE` only ever means a failover (Redis Sentinel's): to detach a copy with it, the primary would follow that copy. See [Replication](replication.md#automatic-failover-with-redis-sentinel). |
 
 A change of `masteruser` or `masterauth` applies the next time the replica connects to its primary. The
 `REPLICAOF host port` and `REPLICAOF NO ONE` commands change the role at run time, and `CONFIG REWRITE`
@@ -286,7 +287,7 @@ The options it accepts are the ones marked "Runtime: yes" above: `fsync`, `write
 `rocksdb-block-cache`, `rocksdb-write-buffer`, `cache-min-memory`, `cache-max-idle`, `cache-max-age`,
 `cache-on-write`, `cache-admission`, `log-level`, `requirepass`, `acllog-max-len`, `masteruser`,
 `masterauth`, `backup-dir`, `backup-keep`, `slowlog-log-slower-than`, `slowlog-max-len`, `replica-priority`,
-`protected-mode`, and every `tls-*` option except `tls-port`.
+`promotion-handoff`, `protected-mode`, and every `tls-*` option except `tls-port`.
 
 Errors:
 

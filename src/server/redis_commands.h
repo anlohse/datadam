@@ -137,6 +137,9 @@ class ServerContext {
   // Set by the Server: makes this a replica of host:port, or a primary with
   // an empty host. Returns an error message or "".
   std::function<std::string(const std::string& host, uint16_t port)> replicaof;
+  // Set by the Server: a replica (by its id in ReplicationState) that is
+  // being promoted asks this primary to hand over to it (promotion-handoff).
+  std::function<void(uint64_t replica)> handoff;
 
  private:
   Config& mutable_config_;

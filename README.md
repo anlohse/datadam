@@ -771,10 +771,11 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    GETs that the page cache serves went from 56–79 to 21 µs of CPU each, and uniform reads of 6 GB through a
    1 GB container from 133–170 to 78–99 µs (Kvrocks 97–99), with 1.7 times the throughput. Not measured in
    the cloud again; there more of the reads reach the disk, and each of those still costs two thread wake-ups.
+   The `SENTINEL FAILOVER` window, where the old primary kept taking writes that its other replicas
+   acknowledged and the promoted one never got: with `promotion-handoff yes`, `REPLICAOF NO ONE` on a replica
+   asks its primary to hand over, as `FAILOVER` does. In Docker, a `SENTINEL FAILOVER` under `WAIT 1` writes lost
+   none and nothing synced in full (without it, 14,000 lost and two full syncs); CI runs that test.
    Next steps, from what those tests showed:
-   - the `SENTINEL FAILOVER` window: the old primary keeps taking writes, acknowledged by its other replicas,
-     until Sentinel re-points it (~2 s of them lost in the test); the promoted replica could tell it to stop, as
-     `FAILOVER` does, as an option;
    - the larger-than-memory latency curve again (that run's memtier replayed the same keys), and the ~25% of
      CPU the write path leaves idle on 16 vCPUs;
    - a security review (limits, `CONFIG SET` paths), CodeQL and image scanning, more fuzz targets;

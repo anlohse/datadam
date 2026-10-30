@@ -204,8 +204,10 @@ past it, with writes the new primary never got, does a full sync and loses them:
 histories. That includes writes the old primary acknowledged, even with `WAIT`, after the promotion: they
 were never on the new primary.
 
-For a hand-over that loses nothing, use [`FAILOVER`](#failover) instead; for automatic failover, Redis
-Sentinel.
+For a hand-over that loses nothing, use [`FAILOVER`](#failover) on the primary, or set `promotion-handoff yes`
+on the replicas: then `REPLICAOF NO ONE` on a replica that is streaming from its primary asks the primary to
+hand over, and the primary runs the same steps as `FAILOVER` towards it (see
+[Promotion with a hand-over](#promotion-with-a-hand-over)). For automatic failover, Redis Sentinel.
 
 ## WAIT
 
@@ -282,6 +284,28 @@ Errors: `ERR FAILOVER requires connected replicas.`, `ERR FAILOVER target HOST a
 `ERR No failover in progress.`. If the replica does not answer within 5 seconds, the primary gives up and takes
 writes again. It is in `@admin` and `@dangerous`.
 
+### Promotion with a hand-over
+
+Redis Sentinel promotes a replica with `REPLICAOF NO ONE`, also for a planned `SENTINEL FAILOVER`, while the old
+primary is alive. Until Sentinel re-points it, the old primary goes on taking writes and its other replicas
+acknowledge them (`WAIT`); none of them reach the promoted replica, so they are lost, and the servers that took
+them sync in full. In a test with `WAIT 1` writes from four clients, 14,000 acknowledged writes were lost and
+two servers synced in full; in the cloud test, at 10 GB, that took a minute.
+
+With `promotion-handoff yes` on a replica, `REPLICAOF NO ONE` replies `OK` and asks the primary, in the
+replication stream (`REPLCONF HANDOFF`), to hand over. The primary does what `FAILOVER TO` that replica does:
+it refuses writes, waits until the replica has them all (at most a second), tells it to take over, and follows
+it. The same test lost no write and nothing synced in full: the old primary and the other replica stop at the
+promotion point and continue from the new primary. The hand-over takes about 10 ms; meanwhile `ROLE` still says
+`slave`, which Sentinel waits out.
+
+The replica becomes a primary on its own, as without the option, when its link to the primary is down (the
+primary died or is cut off: there is nothing to hand over), when it is still in a full sync, and when the primary
+has not handed over within 5 seconds (it then gives up and takes writes again, as a `FAILOVER` that timed
+out). It is off by default because `REPLICAOF NO ONE` also serves to detach a copy, for a test or a
+migration: with the option on, the primary would follow that copy. Set it where `REPLICAOF NO ONE` only means a
+failover, as with Sentinel; it can be changed with `CONFIG SET`.
+
 ### Automatic failover with Redis Sentinel
 
 datadam works with Redis Sentinel (`redis-sentinel` from Redis 7), which watches the primary, agrees among
@@ -314,14 +338,17 @@ until Sentinel corrects it once more.
 - **A server that starts following another one does a full sync**, except a replica (or the old primary) of the
   primary a promoted server followed, as long as it is not past the promotion point. Only the last history is
   kept: after two promotions in a row, the replicas of the first primary sync in full.
-- **`SENTINEL FAILOVER` does not pause the old primary.** Until Sentinel re-points them, the old primary takes
-  writes and its other replicas acknowledge them (`WAIT`), and none of them reach the promoted replica: in a
-  test with writes at 6000/s, about two seconds of acknowledged writes were lost, and the replicas past the
-  promotion point synced in full. Redis has the same window. For a planned hand-over, use `FAILOVER` on the
-  primary; to make `WAIT` mean "on the replica Sentinel will promote", wait for every replica.
+- **`SENTINEL FAILOVER` does not pause the old primary** unless the replicas have `promotion-handoff yes` (see
+  [Promotion with a hand-over](#promotion-with-a-hand-over)). Without it, until Sentinel re-points them, the old
+  primary takes writes and its other replicas acknowledge them (`WAIT`), and none of them reach the promoted
+  replica: in the cloud test, with writes at 6000/s, about two seconds of acknowledged writes were lost, and the
+  replicas past the promotion point synced in full. Redis has the same window.
 - **Full syncs** copy the whole database and delete the replica's data first; the primary needs enough
   `wal-retention` to cover one.
-- **Chained replication** (a replica of a replica) is not a tested setup.
+- **No chained replication** (a replica of a replica): a replica refuses `REPLSYNC`, and a primary that becomes
+  a replica closes its replicas' streams, as Redis does. What a replica would stream is its own WAL, whose
+  positions no other server shares: a replica of it went past the promotion point and synced in full when
+  Sentinel re-pointed it. Until then it keeps retrying, and serves what it had.
 
 ## Runbook
 

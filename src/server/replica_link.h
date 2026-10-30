@@ -23,6 +23,10 @@ class ReplicaLink {
   void start();
   // Ends the link and closes its connection; callable from any thread.
   void stop();
+  // promotion-handoff: asks the primary, in the stream, to hand over to this
+  // replica (REPLCONF HANDOFF); false, and nothing sent, if the link is not
+  // streaming. The primary's answer is FAILOVER's ["failover", next].
+  bool request_handoff();
 
   struct Shared;  // what the link's coroutine shares with stop()
 

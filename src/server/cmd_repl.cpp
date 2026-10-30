@@ -47,6 +47,9 @@ void cmd_replconf(Cmd& c) {
 
 // REPLSYNC <replid|?> <offset>: the connection becomes this replica's stream.
 void cmd_replsync(Cmd& c) {
+  if (c.ctx.repl.is_replica()) {
+    return c.r.error("ERR this server is a replica: replicate from its primary (no chained replication)");
+  }
   if (!c.db().storage().wal_retained()) {
     return c.r.error("ERR replication needs the WAL kept on the primary: set wal-retention");
   }

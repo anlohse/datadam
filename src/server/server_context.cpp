@@ -27,7 +27,7 @@ const std::set<std::string, std::less<>>& runtime_settings() {
       "tls-protocols",       "tls-ciphers",          "tls-ciphersuites", "masteruser",
       "masterauth",          "backup-dir",           "backup-keep",    "slowlog-log-slower-than",
       "slowlog-max-len",     "tls-replication",      "tls-client-cert-file", "tls-client-key-file",
-      "replica-priority",    "protected-mode",
+      "replica-priority",    "protected-mode",       "promotion-handoff",
   };
   return keys;
 }
@@ -206,6 +206,7 @@ std::string ServerContext::set_config(const std::vector<std::pair<std::string_vi
   cur.tls_client_cert_file = next.tls_client_cert_file;
   cur.tls_client_key_file = next.tls_client_key_file;
   cur.replica_priority = next.replica_priority;
+  cur.promotion_handoff = next.promotion_handoff;
   for (const auto& [k, v] : pairs) log_info("CONFIG SET {}", to_lower(k));
   return {};
 }

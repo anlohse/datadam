@@ -73,6 +73,11 @@ class Server {
 
   // FAILOVER: checks and starts the hand-over (run_failover); "" or an error.
   std::string failover(const std::string& host, uint16_t port, int64_t timeout_ms, bool force, bool abort);
+  std::string start_failover(const ReplicationState::Replica& target, int64_t timeout_ms, bool force);
+  // promotion-handoff, on the primary: a replica being promoted asks for the hand-over.
+  void hand_over(uint64_t replica);
+  // follow() with follow_mu_ held.
+  std::string follow_locked(const std::string& host, uint16_t port);
   asio::awaitable<void> run_failover(uint64_t replica, std::string ip, uint16_t port, int64_t timeout_ms, bool force);
 
   ServerContext& ctx_;
@@ -98,6 +103,12 @@ class Server {
   std::unique_ptr<ReadPool> read_pool_;
   std::mutex follow_mu_;
   std::unique_ptr<ReplicaLink> replica_link_;  // when this is a replica
+  // promotion-handoff, on a replica: REPLICAOF NO ONE asked the primary to
+  // hand over; the answer, or handoff_timer_, promotes this server. Under
+  // follow_mu_, as follow_gen_, which every follow() moves on.
+  bool handoff_pending_ = false;
+  uint64_t follow_gen_ = 0;
+  asio::steady_timer handoff_timer_;
   uint16_t ports_[4] = {0, 0, 0, 0};
 };
 

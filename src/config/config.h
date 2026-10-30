@@ -102,6 +102,11 @@ struct Config {
   std::string masterauth;
   // Redis Sentinel promotes the replica with the lowest non-zero priority (0: never).
   unsigned replica_priority = 100;
+  // REPLICAOF NO ONE on a replica streaming from its primary asks the primary
+  // to hand over (as FAILOVER does) instead of leaving it to take writes
+  // that the promoted replica never gets. Off: REPLICAOF NO ONE also serves
+  // to detach a copy, and the primary would then follow that copy.
+  bool promotion_handoff = false;
   // ACL users, one "user" line each: "<name> <rule> ..." (defines the user from scratch).
   std::vector<std::string> users;
   unsigned acllog_max_len = 128;  // entries kept by ACL LOG

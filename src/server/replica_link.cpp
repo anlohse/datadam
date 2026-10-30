@@ -75,9 +75,13 @@ struct ReplicaLink::Shared {
   uint16_t own_port;
   asio::strand<asio::io_context::executor_type> strand;
   std::atomic<bool> stopped{false};
-  // On the strand only: what stop() must interrupt.
+  std::atomic<bool> streaming{false};  // the stream from the primary runs
+  std::atomic<bool> handoff{false};    // request_handoff: send REPLCONF HANDOFF
+  // On the strand only: what stop() must interrupt, and the acknowledging
+  // side's timer (request_handoff wakes it).
   tcp::socket* socket = nullptr;
   asio::steady_timer* timer = nullptr;
+  asio::steady_timer* ack_timer = nullptr;
 
   Shared(ServerContext& c, asio::io_context& io, std::string h, uint16_t p, uint16_t own)
       : ctx(c), host(std::move(h)), port(p), own_port(own), strand(asio::make_strand(io)) {}
@@ -187,15 +191,17 @@ asio::awaitable<void> send_acks(Session<Stream>& s) {
   auto ex = co_await asio::this_coro::executor;
   asio::steady_timer timer(ex);
   s.ack_timer = &timer;
+  s.sh->ack_timer = &timer;
   struct Forget {
     asio::steady_timer*& t;
-    ~Forget() { t = nullptr; }
-  } forget{s.ack_timer};
+    asio::steady_timer*& shared;
+    ~Forget() { t = shared = nullptr; }
+  } forget{s.ack_timer, s.sh->ack_timer};
   for (;;) {
     if (!s.failover) {
-      // A cancel() posted from read_stream while this was writing is not lost:
-      // the offset comparison below catches it.
-      if (s.offset == s.acked) {
+      // A cancel() posted from read_stream (or request_handoff) while this
+      // was writing is not lost: the comparisons below catch it.
+      if (s.offset == s.acked && !s.sh->handoff) {
         timer.expires_after(kAckInterval);
         co_await timer.async_wait(kUseAwaitable);
       }
@@ -205,6 +211,7 @@ asio::awaitable<void> send_acks(Session<Stream>& s) {
     std::string offset = std::to_string(sending);
     append_array(out, {"REPLCONF", "ACK", offset});
     if (s.failover) append_array(out, {"REPLCONF", "FAILOVER-ACK", offset});
+    if (s.sh->handoff.exchange(false)) append_array(out, {"REPLCONF", "HANDOFF", offset});
     if (!co_await flush(s.stream, out)) co_return;
     s.acked = sending;
     if (s.failover) {
@@ -295,6 +302,12 @@ asio::awaitable<void> sync_with(std::shared_ptr<ReplicaLink::Shared> sh, Stream&
     ctx.repl.set_link("connected");
   }
   ctx.repl.touched_primary();
+  sh->handoff = false;
+  sh->streaming = true;
+  struct NotStreaming {
+    std::atomic<bool>& streaming;
+    ~NotStreaming() { streaming = false; }
+  } not_streaming{sh->streaming};
   co_await first_to_end(read_stream(s, full_sync_next), send_acks(s));
 }
 
@@ -380,6 +393,16 @@ void ReplicaLink::stop() {
 
 void ReplicaLink::start() { asio::co_spawn(shared_->strand, run(shared_), asio::detached); }
 
+bool ReplicaLink::request_handoff() {
+  auto sh = shared_;
+  if (sh->stopped || !sh->streaming) return false;
+  sh->handoff = true;
+  asio::post(sh->strand, [sh] {
+    if (sh->ack_timer) sh->ack_timer->cancel();
+  });
+  return true;
+}
+
 // ---- primary side
 
 namespace {
@@ -438,6 +461,8 @@ asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t rep
         if (auto offset = parse_uint64(cmd[2])) ctx.repl.replica_ack(replica, *offset, ctx.db.storage());
       } else if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "failover-ack")) {
         ctx.repl.failover_ack(replica);
+      } else if (cmd.size() == 3 && iequals(cmd[0], "replconf") && iequals(cmd[1], "handoff")) {
+        if (ctx.handoff) ctx.handoff(replica);
       }
     }
     consume(in, pos);

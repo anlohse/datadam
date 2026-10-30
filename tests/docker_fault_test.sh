@@ -11,7 +11,10 @@
 #             synced in full after every failover) with its link up (a stale
 #             link once reported it down for good), the old primary comes back
 #             as a replica; and WAIT does not slow down as the WAL grows (it
-#             once sought the WAL from scratch for every batch).
+#             once sought the WAL from scratch for every batch). Then a planned
+#             SENTINEL FAILOVER with promotion-handoff: none lost, no full sync
+#             (the old primary went on taking writes the promoted replica
+#             never got: ~13,000 acknowledged writes lost in the cloud test).
 #
 # usage: bash tests/docker_fault_test.sh [crash|failover]   (needs the image datadam:latest)
 set -u
@@ -179,6 +182,35 @@ failover() {
   until_true "the old primary comes back as a replica, in sync" 60 \
     '[ "$(field $old replication master_link_status)" = up ] &&
      [ "$(field $old replication slave_repl_offset)" = "$(field $primary replication master_repl_offset)" ]'
+
+  echo "== failover: SENTINEL FAILOVER under WAIT 1, with promotion-handoff"
+  # Without the hand-over the old primary went on taking writes, acknowledged
+  # by its other replica, that the promoted one never got: lost, and both
+  # synced in full.
+  local n fulls_before fulls_after
+  for n in "$old" "$R1" "$R2"; do cli -h "$n" CONFIG SET promotion-handoff yes >/dev/null; done
+  # Full syncs served by any of them (a primary shows no full_syncs of its own).
+  fulls() { for n in "$old" "$R1" "$R2"; do field "$n" replication full_syncs_served; done | awk '{ n += $1 } END { print n }'; }
+  fulls_before=$(fulls)
+  E="-e SENTINELS=$sentinels -e NODES=p=$old,r1=$R1,r2=$R2 -e RUN=ci-planned -e STRICT=1 -e SYNC_LIMIT_S=120"
+  check ha write /out/ha-planned 20 4 > "$OUT/ha-planned-write.txt" 2>&1 &
+  writer=$!
+  sleep 6
+  cli -h dd-s1 -p 26379 SENTINEL FAILOVER dd >/dev/null
+  wait $writer
+  local promoted
+  promoted=$(cli -h dd-s1 -p 26379 SENTINEL get-master-addr-by-name dd | head -1)
+  [ -n "$promoted" ] && [ "$promoted" != "$primary" ] && report "Sentinel moved the primary ($primary -> $promoted)" 1 ||
+    report "Sentinel moved the primary" 0 "the sentinels name $promoted"
+  if check ha verify /out/ha-planned; then
+    report "no write acknowledged with WAIT 1 was lost in the planned failover" 1
+  else
+    report "no write acknowledged with WAIT 1 was lost in the planned failover" 0 "see above"
+    tail -3 "$OUT/ha-planned-write.txt"
+  fi
+  fulls_after=$(fulls)
+  [ "$fulls_after" = "$fulls_before" ] && report "no server synced in full" 1 ||
+    report "no server synced in full" 0 "full syncs served: $fulls_before -> $fulls_after"
 }
 
 [ -z "$ONLY" ] || [ "$ONLY" = crash ] && crash
