@@ -3,6 +3,7 @@
 
 #include <asio.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -447,6 +448,59 @@ TEST_F(ReplicationTest, FailoverSwapsTheRoles) {
   ASSERT_TRUE(eventually([&] { return Client(primary_->port()).text({"GET", "b"}) == "2"; }));
   EXPECT_EQ(primary_->info("master_failover_state"), "no-failover");
   EXPECT_EQ(primary_->info("master_port"), std::to_string(replica_->port()));
+}
+
+TEST_F(ReplicationTest, PromotionHandoffLosesNoWrite) {
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  start_replica();
+  auto other = std::make_unique<Node>(dir_ / "other", 3600, std::format("127.0.0.1 {}", primary_->port()));
+  ASSERT_TRUE(eventually([&] {
+    return caught_up() && other->info("master_link_status") == "up" &&
+           other->info("slave_repl_offset") == primary_->info("repl_offset");
+  }));
+  Client r(replica_->port());
+  EXPECT_EQ(r.text({"CONFIG", "SET", "promotion-handoff", "yes"}), "OK");
+
+  // Writes go on at the primary while the replica is promoted: every one it
+  // acknowledged must be on the new primary.
+  std::atomic<bool> stop{false};
+  std::vector<int> acked;
+  std::thread writer([&] {
+    Client w(primary_->port());
+    for (int i = 0; !stop; ++i) {
+      if (w.text({"SET", std::format("w{}", i), "x"}) == "OK") acked.push_back(i);
+      else std::this_thread::sleep_for(std::chrono::milliseconds(1));  // READONLY: paused, then a replica
+    }
+  });
+  struct Join {
+    std::atomic<bool>& stop;
+    std::thread& t;
+    ~Join() {
+      stop = true;
+      if (t.joinable()) t.join();
+    }
+  } join{stop, writer};
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  EXPECT_EQ(r.text({"REPLICAOF", "NO", "ONE"}), "OK");
+  // The primary handed over, and follows the promoted replica.
+  ASSERT_TRUE(eventually([&] { return replica_->info("role") == "master" && primary_->info("role") == "slave"; }));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  stop = true;
+  writer.join();
+  ASSERT_FALSE(acked.empty());
+  for (int i : acked) ASSERT_EQ(r.text({"GET", std::format("w{}", i)}), "x") << "w" << i << " was acknowledged";
+  ASSERT_TRUE(eventually([&] { return primary_->info("master_link_status") == "up"; }));
+  EXPECT_EQ(primary_->info("full_syncs"), "0");
+
+  // The other replica stopped where the promoted one did: it goes on from it.
+  EXPECT_EQ(Client(other->port()).text({"REPLICAOF", "127.0.0.1", std::to_string(replica_->port())}), "OK");
+  ASSERT_TRUE(eventually([&] {
+    return other->info("master_link_status") == "up" &&
+           other->info("slave_repl_offset") == replica_->info("repl_offset");
+  }));
+  EXPECT_EQ(other->info("full_syncs"), "1");  // its first sync, from the old primary
+  EXPECT_EQ(other->info("partial_syncs"), "1");
 }
 
 TEST_F(ReplicationTest, FunctionsFollowThePrimary) {

@@ -29,7 +29,10 @@ class Reply;
 // FAILOVER: once the replica has everything, the primary sends
 // ["failover", next]; a replica at exactly that offset answers
 // REPLCONF FAILOVER-ACK <offset> and becomes a primary, and the old primary
-// then follows it.
+// then follows it. A replica that is being promoted (REPLICAOF NO ONE, with
+// promotion-handoff) asks for that with REPLCONF HANDOFF <offset>.
+//
+// A replica serves no replicas: its WAL's sequence numbers are its own.
 //
 // After a failover the history goes on: a promoted replica keeps which
 // primary it followed and how far (ReplPrevious). The other replicas of that

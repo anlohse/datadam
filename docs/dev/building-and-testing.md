@@ -233,10 +233,13 @@ each check standing for a bug they found:
   behind it must stay within 4 times (plus 1 ms) the one with none (it was 0.2 against 25 ms when the primary
   sought the WAL for every batch); the primary is killed under `bench/ha_check.py`'s writes: none acknowledged
   is lost, the other replica continues from the promoted one without a full sync and its link stays up (both
-  once failed), and the old primary comes back as a replica, in sync.
+  once failed), and the old primary comes back as a replica, in sync. Then, with `promotion-handoff yes`, a
+  `SENTINEL FAILOVER` under the same writes: none lost and no full sync served by any server (without the
+  hand-over, 14,000 acknowledged writes were lost and two servers synced in full).
 
 The checkers run in `python:3.12-slim` with `bench/` mounted. Against an image from before those fixes
-(`sha-ce3ed55`), the `WAIT`, full sync and link checks fail.
+(`sha-ce3ed55`), the `WAIT`, full sync and link checks fail; against one from before the hand-over (`sha-38c5919`),
+the two `SENTINEL FAILOVER` checks do.
 
 **[tests/docker_redis_cli.sh](../../tests/docker_redis_cli.sh)** `[image]` (default `datadam:latest`) runs the
 image on a private Docker network and tests it with `redis-cli` from the `redis:7.4` image:

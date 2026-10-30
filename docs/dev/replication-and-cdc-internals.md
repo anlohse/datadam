@@ -252,6 +252,7 @@ one-line reply to each:
 | `AUTH [masteruser] masterauth` (only when `masterauth` is set) | `+OK` |
 | `PING` | `+PONG` |
 | `REPLCONF listening-port <port>` | `+OK` |
+| (on the stream, from the replica) `REPLCONF ACK <offset>`, `REPLCONF FAILOVER-ACK <offset>`, `REPLCONF HANDOFF <offset>` | none |
 | `REPLSYNC <replid> <offset>` | `+FULLSYNC ...` or `+CONTINUE ...` |
 
 `REPLSYNC` sends the primary id and offset stored in `repl:primary-id` / `repl:offset` when both exist and no full
@@ -328,6 +329,34 @@ drops a replica's own writes), which would lose writes already under way. `take_
 when the stream has caught up (`raw.empty()`) and `next >= at`; a replica at another offset ignores it, the
 primary times out after 5 s and takes writes again. The acknowledgment is kept in `failover_taken_by_`, not in the
 replica's entry, because the replica disconnects right after sending it.
+
+### Promotion with a hand-over
+
+With `promotion-handoff` the replica starts the same exchange (`Server::follow_locked`, `ReplicaLink::request_handoff`):
+
+```text
+client ──REPLICAOF NO ONE──▶ replica: link streaming, not syncing, promotion-handoff
+                             handoff_pending_ = true; handoff_timer_ 5 s; reply OK (still a replica)
+replica send_acks ── REPLCONF HANDOFF <offset> ──────────────▶ primary read_acks: ctx.handoff(replica)
+                                                               Server::hand_over: start_failover(that replica,
+                                                               1000 ms, no force)  (the FAILOVER steps above)
+replica ◀── failover <at> ── ... FAILOVER-ACK ... post ctx.replicaof("", 0)
+follow_locked("", 0): handoff_pending_ was set: becomes a primary
+```
+
+`request_handoff` sets `Shared::handoff` and cancels the acknowledging side's timer (`Shared::ack_timer`, on the
+link's strand), so `send_acks` sends it at once; it returns false, and the replica promotes itself at once, when
+the link is stopped or not streaming (`Shared::streaming`, set around the stream phase of `sync_with`). Every
+`follow_locked` moves `follow_gen_` on and cancels the timer; the timer's handler promotes only if the generation
+is still its own and the hand-over is still pending, so a `REPLICAOF host port` meanwhile wins. The primary's
+catch-up limit (1 s) is shorter than the replica's wait (5 s): a primary that gives up takes writes again before
+the replica promotes itself anyway, which leaves the window there was without the option, and no worse.
+
+A server that becomes a replica closes its replicas' streams (`e->replica` connections in `ctx.clients`), and
+`cmd_replsync` refuses on a replica. Without that, the old primary's other replica, still streaming from it,
+received the old primary's own writes as a replica (the continuation batch in the system column family, then
+everything it applied), whose sequence numbers are the old primary's, past the promotion point: re-pointed by
+Sentinel a second later, it synced in full.
 
 ### Full sync
 

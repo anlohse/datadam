@@ -98,7 +98,8 @@ auto async_load(ReadPool& pool, std::string_view key, Then& then, Token&& token)
 }  // namespace
 
 Server::Server(ServerContext& ctx)
-    : ctx_(ctx), contexts_(make_contexts(ctx.config.io_thread_count())), io_(*contexts_[0]), signals_(io_, SIGINT, SIGTERM) {
+    : ctx_(ctx), contexts_(make_contexts(ctx.config.io_thread_count())), io_(*contexts_[0]), signals_(io_, SIGINT, SIGTERM),
+      handoff_timer_(io_) {
   // The others have no work until a connection comes: keep their threads.
   for (auto& c : contexts_) work_.push_back(asio::make_work_guard(*c));
   if (ctx.config.read_threads > 0) {
@@ -110,18 +111,21 @@ Server::Server(ServerContext& ctx)
   ctx_.failover = [this](const std::string& host, uint16_t port, int64_t timeout_ms, bool force, bool abort) {
     return failover(host, port, timeout_ms, force, abort);
   };
+  ctx_.handoff = [this](uint64_t replica) { hand_over(replica); };
 }
 
 Server::~Server() {
   ctx_.replicaof = nullptr;
   ctx_.shutdown = nullptr;
   ctx_.failover = nullptr;
+  ctx_.handoff = nullptr;
   // Before io_ goes: these callbacks hold its executors.
   ctx_.clients.clear();
   ctx_.db.key_watch().drop_waiters();
   ctx_.repl.drop_waiters();
   {
     std::lock_guard lock(follow_mu_);
+    handoff_timer_.cancel();
     replica_link_.reset();
   }
   ctx_.read_pool = nullptr;
@@ -203,14 +207,31 @@ std::string Server::failover(const std::string& host, uint16_t port, int64_t tim
     return host.empty() ? "ERR FAILOVER requires connected replicas."
                         : "ERR FAILOVER target HOST and PORT is not a replica.";
   }
+  return start_failover(*target, timeout_ms, force);
+}
+
+std::string Server::start_failover(const ReplicationState::Replica& target, int64_t timeout_ms, bool force) {
   if (failover_running_.exchange(true)) return "ERR FAILOVER already in progress.";
   failover_abort_ = false;
   ctx_.writes_paused = true;  // from here on writes are refused; those under way finish
   ctx_.repl.set_failover_state("waiting-for-sync");
-  log_info("FAILOVER: handing over to {}:{}", target->ip, target->listening_port);
-  asio::co_spawn(io_, run_failover(target->id, target->ip, target->listening_port, timeout_ms, force),
-                 asio::detached);
+  log_info("FAILOVER: handing over to {}:{}", target.ip, target.listening_port);
+  asio::co_spawn(io_, run_failover(target.id, target.ip, target.listening_port, timeout_ms, force), asio::detached);
   return {};
+}
+
+void Server::hand_over(uint64_t replica) {
+  // Less than the replica waits for the answer (kHandoffWait): a primary that
+  // gives up takes writes again before the replica promotes itself anyway.
+  constexpr int64_t kCatchUpMs = 1000;
+  if (ctx_.repl.is_replica()) return;
+  for (const auto& r : ctx_.repl.replicas()) {
+    if (r.id != replica) continue;
+    log_info("replication: {}:{} is being promoted and asks for the hand-over", r.ip, r.listening_port);
+    std::string error = r.state == "online" ? start_failover(r, kCatchUpMs, false) : "it is still syncing";
+    if (!error.empty()) log_warn("replication: no hand-over to {}:{}: {}", r.ip, r.listening_port, error);
+    return;
+  }
 }
 
 asio::awaitable<void> Server::run_failover(uint64_t replica, std::string ip, uint16_t port, int64_t timeout_ms,
@@ -280,6 +301,35 @@ asio::awaitable<void> Server::run_failover(uint64_t replica, std::string ip, uin
 
 std::string Server::follow(const std::string& host, uint16_t port) {
   std::lock_guard lock(follow_mu_);
+  return follow_locked(host, port);
+}
+
+std::string Server::follow_locked(const std::string& host, uint16_t port) {
+  // For the primary to hand over: it pauses its writes, waits for this
+  // replica to have them all, then sends FAILOVER's ["failover", next].
+  constexpr auto kHandoffWait = std::chrono::seconds(5);
+  ++follow_gen_;
+  bool handed_over = std::exchange(handoff_pending_, false);
+  handoff_timer_.cancel();
+  if (host.empty() && !handed_over && ctx_.db.read_only() && replica_link_ && !ctx_.repl.syncing() &&
+      ctx_.settings().promotion_handoff && replica_link_->request_handoff()) {
+    // promotion-handoff: the primary would otherwise go on taking writes,
+    // acknowledged by its other replicas, that this server never gets. Its
+    // answer comes back here (the link calls replicaof("", 0)); without one,
+    // this server becomes a primary all the same.
+    handoff_pending_ = true;
+    uint64_t gen = follow_gen_;
+    handoff_timer_.expires_after(kHandoffWait);
+    handoff_timer_.async_wait([this, gen](const asio::error_code& ec) {
+      if (ec) return;
+      std::lock_guard lock(follow_mu_);
+      if (gen != follow_gen_ || !handoff_pending_) return;
+      log_warn("replication: the primary did not hand over: becoming a primary without it");
+      follow_locked("", 0);
+    });
+    log_info("replication: asked the primary to hand over (promotion-handoff)");
+    return {};
+  }
   if (replica_link_) {
     replica_link_->stop();
     replica_link_.reset();
@@ -300,6 +350,13 @@ std::string Server::follow(const std::string& host, uint16_t port) {
   }
   ctx_.db.set_read_only(true);
   ctx_.repl.set_primary(host, port);
+  // A replica serves no replicas (cmd_replsync): what it would stream is its
+  // own WAL, whose sequence numbers no other server shares, so a replica of
+  // it would go past the point where the others could continue (as an old
+  // primary's replicas would, re-pointed after a failover), and sync in full.
+  for (const auto& e : ctx_.clients.all()) {
+    if (e->replica && e->kill) e->kill();
+  }
   replica_link_ = std::make_unique<ReplicaLink>(ctx_, io_, host, port, ports_[0] ? ports_[0] : ctx_.config.port);
   replica_link_->start();
   log_info("replication: following {}:{}", host, port);
