@@ -440,7 +440,9 @@ ACL SETUSER replicator on >repl-secret +ping +replconf +replsync
 ```
 
 The replication stream carries every key and every change, whatever the user's key patterns, so treat the
-replication user as a full-access credential. By default the replica connects over plain TCP, so
+replication user as a full-access credential. It cannot make the primary step down, though: the primary hands
+over to a replica (`promotion-handoff`) only when the replica's user may run `FAILOVER` (add `+failover` where
+replicas use the hand-over), and a replica's acknowledgments count only up to what the primary sent it. By default the replica connects over plain TCP, so
 credentials and data cross the network unencrypted. With `tls-replication yes` it connects to the primary's
 TLS port instead, verifies the primary's certificate (CA and host name) and presents its own, which the
 primary can require (`tls-auth-clients yes`) and use as its login (`tls-auth-clients-user cn`). See

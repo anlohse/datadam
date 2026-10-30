@@ -87,6 +87,13 @@ class Client {
 
   std::string text(const std::vector<std::string>& args) { return run(args).text; }
 
+  // Sends a command without waiting for a reply (a replica's stream side).
+  void send(const std::vector<std::string>& args) {
+    std::string out = std::format("*{}\r\n", args.size());
+    for (const auto& a : args) out += std::format("${}\r\n{}\r\n", a.size(), a);
+    asio::write(socket_, asio::buffer(out));
+  }
+
  private:
   asio::io_context io_;
   tcp::socket socket_;
@@ -501,6 +508,30 @@ TEST_F(ReplicationTest, PromotionHandoffLosesNoWrite) {
   }));
   EXPECT_EQ(other->info("full_syncs"), "1");  // its first sync, from the old primary
   EXPECT_EQ(other->info("partial_syncs"), "1");
+}
+
+TEST_F(ReplicationTest, AReplicationUserCannotTakeThePrimaryOver) {
+  // A user that may only replicate (docs/security.md) used to be enough to
+  // make the primary hand over to it, and follow it: acknowledge everything,
+  // ask for the hand-over, answer it.
+  Client p(primary_->port());
+  EXPECT_EQ(p.text({"ACL", "SETUSER", "repl", "on", ">pw", "+ping", "+replconf", "+replsync"}), "OK");
+  EXPECT_EQ(p.text({"SET", "a", "1"}), "OK");
+  Client fake(primary_->port());
+  EXPECT_EQ(fake.text({"AUTH", "repl", "pw"}), "OK");
+  EXPECT_EQ(fake.text({"REPLCONF", "listening-port", "1"}), "OK");
+  EXPECT_TRUE(fake.text({"REPLSYNC", "?", "0"}).starts_with("FULLSYNC")) << "a full sync starts";
+  ASSERT_TRUE(eventually([&] { return primary_->info("connected_slaves") == "1"; }));
+  fake.send({"REPLCONF", "ACK", "999999999999"});
+  fake.send({"REPLCONF", "HANDOFF", "999999999999"});
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(primary_->info("master_failover_state"), "no-failover");
+  fake.send({"REPLCONF", "FAILOVER-ACK", "999999999999"});
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(primary_->info("role"), "master");
+  // Nor can an acknowledgment claim writes that were not sent yet.
+  EXPECT_EQ(p.text({"SET", "b", "2"}), "OK");
+  EXPECT_EQ(p.text({"WAIT", "1", "300"}), "0");
 }
 
 TEST_F(ReplicationTest, FunctionsFollowThePrimary) {

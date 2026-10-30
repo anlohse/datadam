@@ -71,6 +71,10 @@ The user the replica logs in with must be allowed to run `PING`, `REPLCONF` and 
 ACL SETUSER replicator on >change-me +ping +replconf +replsync
 ```
 
+With `promotion-handoff yes` the user also needs `+failover`: a hand-over makes the primary follow the
+replica, as `FAILOVER TO` it would, so the primary only hands over to a replica whose user may run `FAILOVER`
+(see [below](#promotion-with-a-hand-over)). Without it, the replica becomes a primary on its own after 5 s.
+
 If a replica may be promoted and then serve replicas of its own, give it a `wal-retention` too: the option
 only takes effect at startup.
 
@@ -295,7 +299,8 @@ two servers synced in full; in the cloud test, at 10 GB, that took a minute.
 With `promotion-handoff yes` on a replica, `REPLICAOF NO ONE` replies `OK` and asks the primary, in the
 replication stream (`REPLCONF HANDOFF`), to hand over. The primary does what `FAILOVER TO` that replica does:
 it refuses writes, waits until the replica has them all (at most a second), tells it to take over, and follows
-it. The same test lost no write and nothing synced in full: the old primary and the other replica stop at the
+it. It does so only for a replica whose user (the one it logs in with, `masteruser`) may run `FAILOVER`;
+otherwise it logs the refusal and the replica promotes itself after 5 seconds. The same test lost no write and nothing synced in full: the old primary and the other replica stop at the
 promotion point and continue from the new primary. The hand-over takes about 10 ms; meanwhile `ROLE` still says
 `slave`, which Sentinel waits out.
 

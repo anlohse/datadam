@@ -96,6 +96,7 @@ class ReplicationState {
     bool failover_ok = false;  // the replica answered FAILOVER-ACK
     bool failover_force = false;  // FAILOVER FORCE: it takes over even if it is behind
     uint64_t needs = 0;           // the oldest WAL sequence it may still ask for (0: none yet)
+    uint64_t sent = 0;            // the stream has sent everything before this offset
   };
 
   // This server's replication id (generated and stored on first use).
@@ -120,6 +121,8 @@ class ReplicationState {
   void replica_ack(uint64_t id, uint64_t offset, RocksStorage& storage);
   // A replica will read the WAL from `seq` (the end of its full sync's snapshot).
   void replica_needs(uint64_t id, uint64_t seq, RocksStorage& storage);
+  // Its stream has sent everything before `next`: it cannot acknowledge more.
+  void replica_sent(uint64_t id, uint64_t next);
   void remove_replica(uint64_t id, RocksStorage& storage);
   std::vector<Replica> replicas() const;
   // How many replicas acknowledged everything before `offset` (WAIT).
