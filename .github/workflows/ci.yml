@@ -63,6 +63,17 @@ jobs:
           tags: datadam:latest
           load: true
 
+      # Known vulnerabilities in the image's packages that have a fix. Pinned to
+      # a commit: the action's tags were rewritten in a supply-chain attack (2026).
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: datadam:latest
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: redis-cli suite (commands, persistence, TLS, replication)
         run: bash tests/docker_redis_cli.sh datadam:latest
 
