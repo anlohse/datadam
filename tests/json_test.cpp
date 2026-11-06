@@ -446,3 +446,20 @@ TEST_F(JsonIndexes, Unique) {
   EXPECT_EQ(text({"RENAME", "acct:2", "acct:3"}), "OK");  // its own value moves with it
   EXPECT_EQ(run({"IDX.GET", "emails", "a@x"}).items[0].text, "acct:3");
 }
+
+TEST_F(JsonIndexes, TypedReturnPreservesNullStringsArraysAndAbsence) {
+  ASSERT_EQ(text({"JSON.SET", "p:1", "$", R"({"age":20,"name":"null","optional":null,"tags":["a","b"]})"}), "OK");
+  ASSERT_EQ(text({"IDX.CREATE", "p", "ON", "JSON", "PREFIX", "1", "p:", "SCHEMA", "$.age", "AS", "age", "NUMERIC"}), "OK");
+  ready("p");
+  auto result = run({"IDX.QUERY", "p", "RETURNJSON", "5", "$.name", "$.optional", "$.tags", "$.missing", "age"});
+  ASSERT_EQ(result.items.size(), 2);
+  const auto& fields = result.items[1].items;
+  ASSERT_EQ(fields.size(), 8);
+  EXPECT_EQ(fields[1].text, "\"null\"");
+  EXPECT_EQ(fields[3].text, "null");
+  EXPECT_EQ(fields[5].text, "[\"a\",\"b\"]");
+  EXPECT_EQ(fields[7].text, "20");
+  auto old = run({"IDX.QUERY", "p", "RETURN", "1", "$.name"});
+  EXPECT_EQ(old.items[1].items[1].text, "null");
+  EXPECT_TRUE(run({"IDX.QUERY", "p", "RETURN", "1", "age", "RETURNJSON", "1", "age"}).error);
+}

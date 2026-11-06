@@ -171,7 +171,10 @@ void cmd_ft_search(Cmd& c) {
       opts.offset = *off;
       opts.limit = *cnt;
       i += 3;
-    } else if (opt == "return") {
+    } else if (opt == "return" || opt == "returnjson") {
+      if ((opt == "returnjson" && !opts.return_fields.empty()) || (opt == "return" && opts.return_json))
+        return c.r.error("ERR RETURN and RETURNJSON cannot be combined");
+      opts.return_json = opt == "returnjson";
       auto count = count_at(i + 1);
       if (!count) return c.r.error("ERR bad RETURN count");
       size_t end = i + 2 + *count;

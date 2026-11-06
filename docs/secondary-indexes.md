@@ -170,8 +170,11 @@ and options may be interleaved; options are case-insensitive.
 | `LIMIT offset count` | Skip `offset` matches, return up to `count`. Default `LIMIT 0 10`. A negative `count` means no limit; `count` 0 returns an empty page (use `IDX.COUNT` to count). |
 | `NOCONTENT` | Return keys only. |
 | `RETURN count name ...` | Return only these fields. Names follow the same rules as condition fields. |
+| `RETURNJSON count name ...` | Datadam extension: select fields like RETURN, but encode each selected JSON value as JSON text, including quoted strings and null. HASH fields keep RETURN's native string format. |
 
 `NOCONTENT` and `RETURN` together fail with `ERR NOCONTENT and RETURN cannot be used together`.
+
+`RETURNJSON` uses the first value selected by a JSON path, preserving its type and array/object structure. Missing paths are omitted; JSON null is returned as `null` and the string `null` as `"null"`. It does not change RETURN or default content. Do not combine RETURN and RETURNJSON; the option requires a positive field count. Returned HASH values remain native field strings.
 
 **Replies**
 

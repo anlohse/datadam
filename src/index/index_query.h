@@ -27,6 +27,7 @@ struct IndexQuery {
   bool desc = false;
   bool count_only = false;
   bool no_content = false;
+  bool return_json = false;  // RETURNJSON preserves JSON value types, including null and strings.
   std::vector<std::string> return_fields;  // empty: all fields
   // If set, only hashes whose key passes it count (ACL key permissions).
   std::function<bool(std::string_view key)> key_filter;
