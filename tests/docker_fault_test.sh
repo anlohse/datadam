@@ -189,6 +189,16 @@ failover() {
   # synced in full.
   local n fulls_before fulls_after
   for n in "$old" "$R1" "$R2"; do cli -h "$n" CONFIG SET promotion-handoff yes >/dev/null; done
+  # Every sentinel must have seen the old primary as a replica first. A sentinel
+  # reads a replica's INFO every 10 s: one that missed it as a replica still
+  # holds it as a master for longer than 8 s, and when the failover promotes it,
+  # it turns it back into a replica of the old address (+convert-to-slave): a
+  # replication loop and no primary.
+  until_true "every sentinel sees the replicas as replicas" 40 \
+    '(for s in dd-s1 dd-s2 dd-s3; do
+       r=$(cli -h $s -p 26379 SENTINEL replicas dd | grep -A1 "^role-reported$" | grep -v -e "^role-reported$" -e "^--$")
+       [ "$(echo "$r" | grep -c "^slave$")" -ge 2 ] && ! echo "$r" | grep -q "^master$" || exit 1
+     done)'
   # Full syncs served by any of them (a primary shows no full_syncs of its own).
   fulls() { for n in "$old" "$R1" "$R2"; do field "$n" replication full_syncs_served; done | awk '{ n += $1 } END { print n }'; }
   fulls_before=$(fulls)
@@ -223,7 +233,7 @@ if [ "$fail" -gt 0 ]; then
   for c in dd-crash dd-p dd-r1 dd-r2 dd-s1 dd-s2 dd-s3; do
     docker inspect $c >/dev/null 2>&1 || continue
     echo "--- $c"
-    docker logs $c 2>&1 | grep -v -e 'refused REPLSYNC' -e 'Sentinel ID' | tail -40
+    docker logs $c 2>&1 | grep -v -e 'refused REPLSYNC' -e 'Sentinel ID' -e 'configuration saved' | tail -80
     n=$(docker logs $c 2>&1 | grep -c 'refused REPLSYNC')
     [ "$n" = 0 ] || echo "(and $n refused REPLSYNC, the last: $(docker logs $c 2>&1 | grep 'refused REPLSYNC' | tail -1 | cut -c1-23))"
   done
