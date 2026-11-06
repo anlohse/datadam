@@ -160,7 +160,7 @@ the name.
 
 ```text
 FT.SEARCH index query [NOCONTENT] [WITHSCORES] [FILTER field min max ...]
-    [RETURN count name [AS alias] ...] [SORTBY field [ASC | DESC] [WITHCOUNT]]
+    [RETURN | RETURNJSON count name [AS alias] ...] [SORTBY field [ASC | DESC] [WITHCOUNT]]
     [LIMIT offset count] [PARAMS count name value ...] [ignored options]
 ```
 
@@ -170,6 +170,7 @@ FT.SEARCH index query [NOCONTENT] [WITHSCORES] [FILTER field min max ...]
 | `WITHSCORES` | Add a score after each key; it is always `1`. |
 | `FILTER field min max` | Same as adding `@field:[min max]` to the query (the old numeric filter form). May be repeated. |
 | `RETURN count name [AS alias] ...` | Return only these fields; `count` counts every argument, including `AS` and the alias. `RETURN 0` returns keys only. |
+| `RETURNJSON count name [AS alias] ...` | Datadam extension: as `RETURN`, but a JSON value is returned as JSON text (see below). |
 | `SORTBY field [ASC \| DESC]` | Order by an index field (`@field` also accepted). `WITHCOUNT` after it is accepted. Unknown field: `ERR Property 'x' not loaded nor in schema`. |
 | `LIMIT offset count` | Default `LIMIT 0 10`. `LIMIT 0 0` returns only the total. Negative values: `ERR bad LIMIT`. |
 | `PARAMS count name value ...` | Values for `$name` in the query. `count` must be even. |
@@ -182,7 +183,11 @@ JSON, a name is an index field (its path is used), a path (`$.name`, `.name`), o
 top-level member. A JSON string is returned as it is, any other value as JSON text, and only the first value a
 path selects. Names a document does not have are left out of its entry.
 
-**RETURNJSON (Datadam extension).** The syntax and argument count, including AS aliases, follow RETURN. For JSON documents each selected value is JSON text: strings retain quotes, null remains `null`, and arrays/objects keep their structure. Only the first path match is returned; missing paths are omitted. HASH fields retain RETURN's native string format. RETURN and default content are unchanged; do not combine RETURNJSON and RETURN.
+**RETURNJSON** (a Datadam extension) takes the same arguments as `RETURN`, `AS` included, and selects the
+same values, but returns each JSON value as JSON text: a string keeps its quotes (`"null"`), JSON null is
+`null`, and arrays and objects keep their structure, so a client can tell the types apart. Hash fields are
+returned as with `RETURN`. It cannot be combined with `RETURN` (`ERR RETURN and RETURNJSON cannot be
+combined`).
 
 **Reply** (the RESP2 shape, also on RESP3 connections):
 
@@ -214,8 +219,8 @@ path selects. Names a document does not have are left out of its entry.
 ```
 
 Errors: `ERR <index>: no such index` (also when the name is an `IDX.*` index), `ERR index 'x' failed: ...`,
-`ERR bad RETURN count`, `ERR bad RETURN: AS needs a name`, `ERR bad PARAMS count`, `ERR bad LIMIT`, query
-syntax errors.
+`ERR bad RETURN count`, `ERR bad RETURN: AS needs a name` (both also for `RETURNJSON`),
+`ERR RETURN and RETURNJSON cannot be combined`, `ERR bad PARAMS count`, `ERR bad LIMIT`, query syntax errors.
 
 ## Result order
 

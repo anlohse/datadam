@@ -190,7 +190,8 @@ bool parse_query(Cmd& c, IndexQuery* q, bool allow_options) {
       i += 3;
     } else if (allow_options && (opt == "return" || opt == "returnjson") && i + 1 < c.args.size()) {
       if ((opt == "returnjson" && !q->return_fields.empty()) || (opt == "return" && q->return_json)) {
-        c.r.error("ERR RETURN and RETURNJSON cannot be combined"); return false;
+        c.r.error("ERR RETURN and RETURNJSON cannot be combined");
+        return false;
       }
       q->return_json = opt == "returnjson";
       auto n = parse_int64(c.args[i + 1]);

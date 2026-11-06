@@ -305,25 +305,24 @@ namespace {
 
 // The values a query sees in a document: an index field's by its name, or
 // what a path finds ($.a.b, .a.b, or a top-level member by its name), a
-// string as it is and anything else as JSON text.
+// string as it is and anything else as JSON text. Typed (RETURNJSON): the
+// first value the path (an index field's own path) selects, as JSON text.
 std::vector<std::string> json_query_values(const IndexDef& def, const Json& doc, std::string_view name, bool typed = false) {
-  if (typed) {
-    int fi = def.field_index(name);
-    std::string text = fi >= 0 ? def.fields[static_cast<size_t>(fi)].path
-        : name.starts_with("$") || name.starts_with(".") ? std::string(name) : "$." + std::string(name);
-    std::string error;
-    auto path = JsonPath::parse(text, &error);
-    if (!path) return {};
-    auto found = path->select(doc);
-    return found.empty() ? std::vector<std::string>{} : std::vector<std::string>{dump_json(*found.front())};
-  }
-  if (int i = def.field_index(name); i >= 0) return def.json_values(static_cast<size_t>(i), doc);
+  int fi = def.field_index(name);
+  if (fi >= 0 && !typed) return def.json_values(static_cast<size_t>(fi), doc);
   std::vector<std::string> out;
-  std::string text = name.starts_with("$") || name.starts_with(".") ? std::string(name) : "$." + std::string(name);
+  std::string text = fi >= 0                                         ? def.fields[static_cast<size_t>(fi)].path
+                     : name.starts_with("$") || name.starts_with(".") ? std::string(name)
+                                                                      : "$." + std::string(name);
   std::string error;
   auto path = JsonPath::parse(text, &error);
   if (!path) return out;
-  for (const Json* v : path->select(doc)) out.push_back(v->is_string() ? v->get<std::string>() : dump_json(*v));
+  auto found = path->select(doc);
+  if (typed) {
+    if (!found.empty()) out.push_back(dump_json(*found.front()));
+    return out;
+  }
+  for (const Json* v : found) out.push_back(v->is_string() ? v->get<std::string>() : dump_json(*v));
   return out;
 }
 

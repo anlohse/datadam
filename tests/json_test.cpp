@@ -462,4 +462,16 @@ TEST_F(JsonIndexes, TypedReturnPreservesNullStringsArraysAndAbsence) {
   auto old = run({"IDX.QUERY", "p", "RETURN", "1", "$.name"});
   EXPECT_EQ(old.items[1].items[1].text, "null");
   EXPECT_TRUE(run({"IDX.QUERY", "p", "RETURN", "1", "age", "RETURNJSON", "1", "age"}).error);
+  EXPECT_TRUE(run({"IDX.QUERY", "p", "NOCONTENT", "RETURNJSON", "1", "age"}).error);
+  EXPECT_TRUE(run({"IDX.QUERY", "p", "RETURNJSON", "0"}).error);
+}
+
+TEST_F(JsonIndexes, TypedReturnOfAnIndexFieldIsTheValueAtItsPath) {
+  ASSERT_EQ(text({"JSON.SET", "t:1", "$", R"({"tags":["a","b"]})"}), "OK");
+  ASSERT_EQ(text({"IDX.CREATE", "t", "ON", "JSON", "PREFIX", "1", "t:", "SCHEMA", "$.tags", "AS", "tag", "TAG"}), "OK");
+  ready("t");
+  // RETURN gives the first indexed (split) value; RETURNJSON the value at the field's path.
+  EXPECT_EQ(run({"IDX.QUERY", "t", "tag", "=", "b", "RETURN", "1", "tag"}).items[1].items[1].text, "a");
+  EXPECT_EQ(run({"IDX.QUERY", "t", "tag", "=", "b", "RETURNJSON", "1", "tag"}).items[1].items[1].text,
+            R"(["a","b"])");
 }
