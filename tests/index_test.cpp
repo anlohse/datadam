@@ -203,6 +203,23 @@ TEST_F(IndexTest, UniqueBackfillFailsOnDuplicates) {
   EXPECT_EQ(index_entries(), 0u);
 }
 
+TEST_F(IndexTest, HashReplaceUniqueRefusalPreservesFieldsAndExpiryInsideScripts) {
+  EXPECT_EQ(run({"IDX.CREATE", "u", "ON", "HASH", "PREFIX", "1", "h:", "SCHEMA", "ref", "TAG", "UNIQUE"}), "+OK\r\n");
+  ASSERT_EQ(wait_built("u"), IndexState::Ready);
+  EXPECT_EQ(run({"HREPLACE", "h:a", "id", "a", "ref", "owner", "text", "safe"}), "+OK\r\n");
+  EXPECT_EQ(run({"HREPLACE", "h:b", "id", "b", "ref", "other", "text", "preserve", "remove", "old"}), "+OK\r\n");
+  EXPECT_EQ(run({"PEXPIRE", "h:b", "60000"}), ":1\r\n");
+  auto before = run({"HGETALL", "h:b"});
+  auto expiry = run({"PEXPIRETIME", "h:b"});
+  auto error = run({"EVAL", "return redis.call('HREPLACE', KEYS[1], 'id', 'b', 'ref', 'owner', 'text', 'refused')", "1", "h:b"});
+  EXPECT_NE(error.find("UNIQUE"), std::string::npos);
+  EXPECT_EQ(run({"HGETALL", "h:b"}), before);
+  EXPECT_EQ(run({"PEXPIRETIME", "h:b"}), expiry);
+  close(); open();
+  EXPECT_EQ(run({"HGETALL", "h:b"}), before);
+  EXPECT_EQ(run({"PEXPIRETIME", "h:b"}), expiry);
+}
+
 TEST_F(IndexTest, DropRemovesEntries) {
   users_index();
   for (int i = 0; i < 20; ++i) run({"HSET", "user:" + std::to_string(i), "city", "SP", "age", "1"});

@@ -5,6 +5,7 @@
 #include <format>
 #include <optional>
 #include <random>
+#include <unordered_set>
 
 #include "server/command.h"
 #include "util/strings.h"
@@ -59,6 +60,26 @@ void hset_generic(Cmd& c, bool hmset) {
 
 void cmd_hset(Cmd& c) { hset_generic(c, false); }
 void cmd_hmset(Cmd& c) { hset_generic(c, true); }
+
+// Datadam extension: replace the complete hash in one KeyTxn, retaining expiration.
+// UNIQUE validation sees the final field set, never a HDEL/HSET intermediate state.
+void cmd_hreplace(Cmd& c) {
+  if (c.args.size() % 2 != 0) return c.r.error("ERR wrong number of arguments for 'hreplace' command");
+  if (!with_collection(c, c.args[1], kHash, [&](Txn& t) {
+        auto old = all_fields(t);
+        std::unordered_set<std::string_view> incoming;
+        for (size_t i = 2; i < c.args.size(); i += 2) incoming.insert(c.args[i]);
+        t.create(kHash);
+        for (const auto& [field, value] : old) {
+          if (!incoming.contains(field)) { t.del(field); --t.meta().size; }
+        }
+        for (size_t i = 2; i < c.args.size(); i += 2) {
+          if (!t.get(c.args[i])) ++t.meta().size;
+          t.put(c.args[i], c.args[i + 1]);
+        }
+      })) return;
+  c.r.ok();
+}
 
 void cmd_hsetnx(Cmd& c) {
   bool added = false;
@@ -274,6 +295,7 @@ void cmd_hrandfield(Cmd& c) {
 CommandList hash_commands() {
   return {
       {"hset", {cmd_hset, -4}},
+      {"hreplace", {cmd_hreplace, -4}},
       {"hmset", {cmd_hmset, -4}},
       {"hsetnx", {cmd_hsetnx, 4}},
       {"hget", {cmd_hget, 3}},
