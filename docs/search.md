@@ -182,6 +182,8 @@ JSON, a name is an index field (its path is used), a path (`$.name`, `.name`), o
 top-level member. A JSON string is returned as it is, any other value as JSON text, and only the first value a
 path selects. Names a document does not have are left out of its entry.
 
+**RETURNJSON (Datadam extension).** The syntax and argument count, including AS aliases, follow RETURN. For JSON documents each selected value is JSON text: strings retain quotes, null remains `null`, and arrays/objects keep their structure. Only the first path match is returned; missing paths are omitted. HASH fields retain RETURN's native string format. RETURN and default content are unchanged; do not combine RETURNJSON and RETURN.
+
 **Reply** (the RESP2 shape, also on RESP3 connections):
 
 ```text

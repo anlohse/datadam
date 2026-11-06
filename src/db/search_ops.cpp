@@ -143,7 +143,7 @@ class SearchScanner {
 
 // What RETURN shows for a name in a document: an index field's path, or the
 // name as a path; a string as it is, anything else as JSON text.
-std::optional<std::string> json_return_value(const IndexDef& def, const Json& doc, const std::string& name) {
+std::optional<std::string> json_return_value(const IndexDef& def, const Json& doc, const std::string& name, bool typed) {
   int fi = def.field_index(name);
   std::string text = fi >= 0 ? def.fields[static_cast<size_t>(fi)].path
                      : name.starts_with("$") || name.starts_with(".") ? name
@@ -153,7 +153,7 @@ std::optional<std::string> json_return_value(const IndexDef& def, const Json& do
   if (!path) return std::nullopt;
   auto found = path->select(doc);
   if (found.empty()) return std::nullopt;
-  return found.front()->is_string() ? found.front()->get<std::string>() : dump_json(*found.front());
+  return !typed && found.front()->is_string() ? found.front()->get<std::string>() : dump_json(*found.front());
 }
 
 }  // namespace
@@ -223,7 +223,7 @@ SearchResult Database::search(const IndexRegistry::Ptr& index, const SearchNode&
         hit.fields.emplace_back("$", dump_json(*doc));
       } else {
         for (const auto& [name, as] : opts.return_fields) {
-          if (auto v = json_return_value(def, *doc, name)) hit.fields.emplace_back(as, std::move(*v));
+          if (auto v = json_return_value(def, *doc, name, opts.return_json)) hit.fields.emplace_back(as, std::move(*v));
         }
       }
     } else {

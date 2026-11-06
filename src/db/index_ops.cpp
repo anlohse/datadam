@@ -306,7 +306,17 @@ namespace {
 // The values a query sees in a document: an index field's by its name, or
 // what a path finds ($.a.b, .a.b, or a top-level member by its name), a
 // string as it is and anything else as JSON text.
-std::vector<std::string> json_query_values(const IndexDef& def, const Json& doc, std::string_view name) {
+std::vector<std::string> json_query_values(const IndexDef& def, const Json& doc, std::string_view name, bool typed = false) {
+  if (typed) {
+    int fi = def.field_index(name);
+    std::string text = fi >= 0 ? def.fields[static_cast<size_t>(fi)].path
+        : name.starts_with("$") || name.starts_with(".") ? std::string(name) : "$." + std::string(name);
+    std::string error;
+    auto path = JsonPath::parse(text, &error);
+    if (!path) return {};
+    auto found = path->select(doc);
+    return found.empty() ? std::vector<std::string>{} : std::vector<std::string>{dump_json(*found.front())};
+  }
   if (int i = def.field_index(name); i >= 0) return def.json_values(static_cast<size_t>(i), doc);
   std::vector<std::string> out;
   std::string text = name.starts_with("$") || name.starts_with(".") ? std::string(name) : "$." + std::string(name);
@@ -484,7 +494,7 @@ IndexQueryResult Database::query_index(const IndexQuery& q) {
           hit.fields.emplace_back("$", dump_json(*doc));
         } else if (!q.no_content && !q.count_only) {
           for (const auto& f : q.return_fields) {
-            auto vs = json_query_values(def, *doc, f);
+            auto vs = json_query_values(def, *doc, f, q.return_json);
             if (!vs.empty()) hit.fields.emplace_back(f, vs.front());
           }
         }
