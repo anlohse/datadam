@@ -49,6 +49,7 @@ struct SearchOptions {
   int64_t offset = 0;
   int64_t limit = 10;
   bool no_content = false;
+  bool return_json = false;
   // RETURN: a field name (or JSON path) and the name to show it under.
   std::vector<std::pair<std::string, std::string>> return_fields;
   std::optional<size_t> sort_field;  // SORTBY: a field of the index

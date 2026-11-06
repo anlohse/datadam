@@ -144,7 +144,8 @@ combinations per key and index are kept; a key with more is left out of the inde
 ## Querying: IDX.QUERY and IDX.COUNT
 
 ```text
-IDX.QUERY index [field op value ...] [DESC] [LIMIT offset count] [NOCONTENT | RETURN count name ...]
+IDX.QUERY index [field op value ...] [DESC] [LIMIT offset count]
+    [NOCONTENT | RETURN count name ... | RETURNJSON count name ...]
 IDX.COUNT index [field op value ...]
 ```
 
@@ -170,8 +171,15 @@ and options may be interleaved; options are case-insensitive.
 | `LIMIT offset count` | Skip `offset` matches, return up to `count`. Default `LIMIT 0 10`. A negative `count` means no limit; `count` 0 returns an empty page (use `IDX.COUNT` to count). |
 | `NOCONTENT` | Return keys only. |
 | `RETURN count name ...` | Return only these fields. Names follow the same rules as condition fields. |
+| `RETURNJSON count name ...` | Datadam extension: select fields like `RETURN`, but return each JSON value as JSON text, strings quoted and null as `null`. Hash fields are returned as with `RETURN`. |
 
-`NOCONTENT` and `RETURN` together fail with `ERR NOCONTENT and RETURN cannot be used together`.
+`NOCONTENT` with `RETURN` or `RETURNJSON` fails with `ERR NOCONTENT and RETURN cannot be used together`, and
+`RETURN` with `RETURNJSON` with `ERR RETURN and RETURNJSON cannot be combined`.
+
+**RETURNJSON** returns, for each name, the first value its path selects, as JSON text: a string keeps its quotes
+(`"null"`), JSON null is `null`, and arrays and objects keep their structure, so a client can tell the types
+apart. On an index field it is the value at the field's path, not the split TAG values. Names a document does
+not have are left out, as with `RETURN`. Like `RETURN`, it needs a positive count.
 
 **Replies**
 
@@ -180,6 +188,7 @@ and options may be interleaved; options are case-insensitive.
 | default, hash | `[key1, [field, value, ...], key2, [...], ...]` with every field of each hash |
 | default, JSON | `[key1, ["$", document], ...]`, the whole document as compact JSON |
 | `RETURN` | `[key1, [name, value, ...], ...]` with only the names that exist in that key; on JSON, the first value the path selects (a string as is, anything else as JSON text) |
+| `RETURNJSON` | as `RETURN`, but on JSON every value is JSON text (`"ana"`, `20`, `null`, `["a","b"]`) |
 | `NOCONTENT` | `[key1, key2, ...]` |
 | `IDX.COUNT` | an integer |
 
@@ -211,7 +220,9 @@ and options may be interleaved; options are case-insensitive.
 | `ERR index 'x' is still being built (N keys scanned)` | backfill in progress |
 | `ERR index 'x' failed: <reason>` | the index is in the failed state |
 | `ERR syntax error near 'X' (conditions are: field op value, op one of = > >= < <=)` | an unknown option or a malformed condition |
-| `ERR bad RETURN count` | |
+| `ERR bad RETURN count` | also for `RETURNJSON` |
+| `ERR NOCONTENT and RETURN cannot be used together` | also for `RETURNJSON` |
+| `ERR RETURN and RETURNJSON cannot be combined` | |
 | `ERR value is not an integer or out of range` | a bad `LIMIT` |
 
 `IDX.COUNT` accepts conditions only, no options.

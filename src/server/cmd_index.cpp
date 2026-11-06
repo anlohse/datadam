@@ -188,7 +188,12 @@ bool parse_query(Cmd& c, IndexQuery* q, bool allow_options) {
       q->offset = *off;
       q->limit = *cnt;
       i += 3;
-    } else if (allow_options && opt == "return" && i + 1 < c.args.size()) {
+    } else if (allow_options && (opt == "return" || opt == "returnjson") && i + 1 < c.args.size()) {
+      if ((opt == "returnjson" && !q->return_fields.empty()) || (opt == "return" && q->return_json)) {
+        c.r.error("ERR RETURN and RETURNJSON cannot be combined");
+        return false;
+      }
+      q->return_json = opt == "returnjson";
       auto n = parse_int64(c.args[i + 1]);
       if (!n || *n <= 0 || i + 2 + static_cast<size_t>(*n) > c.args.size()) {
         c.r.error("ERR bad RETURN count");

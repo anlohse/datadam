@@ -441,7 +441,7 @@ FT.INFO items / FT._LIST / FT.TAGVALS items color / FT.DROPINDEX items [DD]
   value per element. Values ignore case unless the field is `CASESENSITIVE`, and the content returned is the
   original.
 - **Options.** `NOCONTENT`, `RETURN` (with `AS`), `SORTBY`, `LIMIT`, `PARAMS`, `WITHSCORES` (always 1) and
-  `FILTER field min max` work; `DIALECT`, `TIMEOUT`, `VERBATIM` and the like are accepted and ignored. In
+  `FILTER field min max` work, plus `RETURNJSON`, an extension that returns JSON values as typed JSON text; `DIALECT`, `TIMEOUT`, `VERBATIM` and the like are accepted and ignored. In
   `FT.CREATE`, `SORTABLE`, `NOINDEX`, `LANGUAGE`, `STOPWORDS` and the like are also accepted and ignored, and
   `SKIPINITIALSCAN` skips the backfill. While the backfill runs, `FT.SEARCH` replies with what has been
   indexed so far, as in RediSearch.

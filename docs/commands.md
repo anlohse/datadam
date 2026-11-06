@@ -417,13 +417,14 @@ Compound, ordered indexes over hashes and JSON documents. See [Secondary indexes
 | IDX.DROP | `IDX.DROP index` |
 | IDX.LIST | `IDX.LIST` |
 | IDX.INFO | `IDX.INFO index` |
-| IDX.QUERY | `IDX.QUERY index [field op value ...] [DESC] [LIMIT offset count] [NOCONTENT \| RETURN count field [field ...]]` |
+| IDX.QUERY | `IDX.QUERY index [field op value ...] [DESC] [LIMIT offset count] [NOCONTENT \| RETURN count field [field ...] \| RETURNJSON count field [field ...]]` |
 | IDX.COUNT | `IDX.COUNT index [field op value ...]` |
 | IDX.GET | `IDX.GET index value [value ...]` |
 
 `op` is one of `=` (or `==`), `>`, `>=`, `<`, `<=`. `AS name` applies to `ON JSON` indexes, where a field is a
-path. The default `LIMIT` is 10; a negative count means no limit. `IDX.QUERY`, `IDX.COUNT` and `IDX.GET`
-return and count only the keys the logged-in user may read.
+path. The default `LIMIT` is 10; a negative count means no limit. `RETURNJSON`, a Datadam extension (also on
+`FT.SEARCH`), returns JSON values as JSON text, keeping strings quoted and null as `null`. `IDX.QUERY`,
+`IDX.COUNT` and `IDX.GET` return and count only the keys the logged-in user may read.
 
 ## Search
 
@@ -432,7 +433,7 @@ The RediSearch-compatible subset, with `TAG` and `NUMERIC` fields. See [Search](
 | Command | Syntax |
 |---|---|
 | FT.CREATE | `FT.CREATE index [ON HASH\|JSON] [PREFIX count prefix ...] [SKIPINITIALSCAN] SCHEMA field [AS alias] TAG [SEPARATOR c] [CASESENSITIVE] \| NUMERIC [SORTABLE] ...` |
-| FT.SEARCH | `FT.SEARCH index query [NOCONTENT] [WITHSCORES] [FILTER field min max] [RETURN count field [AS name] ...] [SORTBY field [ASC\|DESC]] [LIMIT offset count] [PARAMS count name value ...] [DIALECT n]` |
+| FT.SEARCH | `FT.SEARCH index query [NOCONTENT] [WITHSCORES] [FILTER field min max] [RETURN \| RETURNJSON count field [AS name] ...] [SORTBY field [ASC\|DESC]] [LIMIT offset count] [PARAMS count name value ...] [DIALECT n]` |
 | FT.DROPINDEX | `FT.DROPINDEX index [DD]` |
 | FT.INFO | `FT.INFO index` |
 | FT._LIST | `FT._LIST` |

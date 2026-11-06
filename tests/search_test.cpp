@@ -381,3 +381,17 @@ TEST_F(Search, CompoundIndexesWithSeveralValues) {
   text({"JSON.ARRAPPEND", "post:2", "$.tags", R"("cpp")"});
   EXPECT_EQ(text({"IDX.COUNT", "posts", "tag", "=", "cpp"}), "2");
 }
+
+TEST_F(Search, TypedJsonReturnSupportsAliasesWithoutChangingReturn) {
+  ASSERT_EQ(text({"JSON.SET", "p:1", "$", R"({"age":20,"name":"null","optional":null,"tags":["a","b"]})"}), "OK");
+  ASSERT_EQ(text({"FT.CREATE", "p", "ON", "JSON", "PREFIX", "1", "p:", "SCHEMA", "$.age", "AS", "age", "NUMERIC"}), "OK");
+  ready("p");
+  auto result = run({"FT.SEARCH", "p", "*", "RETURNJSON", "7", "$.name", "AS", "display", "$.optional", "$.tags", "$.missing", "age"});
+  ASSERT_EQ(result.items.size(), 3);
+  const auto& fields = result.items[2].items;
+  ASSERT_EQ(fields.size(), 8);
+  EXPECT_EQ(fields[0].text, "display"); EXPECT_EQ(fields[1].text, "\"null\"");
+  EXPECT_EQ(fields[3].text, "null"); EXPECT_EQ(fields[5].text, "[\"a\",\"b\"]"); EXPECT_EQ(fields[7].text, "20");
+  EXPECT_EQ(run({"FT.SEARCH", "p", "*", "RETURN", "1", "$.name"}).items[2].items[1].text, "null");
+  EXPECT_TRUE(run({"FT.SEARCH", "p", "*", "RETURNJSON", "1", "age", "RETURN", "1", "age"}).error);
+}
