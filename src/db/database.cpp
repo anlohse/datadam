@@ -432,7 +432,9 @@ void Database::stage_data(PendingBatch& b, std::string key, std::optional<std::s
   b.bytes += key.size() + (value ? value->size() : 0);
   auto it = b.data.find(key);
   if (b.in_txn) {
-    b.undo.push_back({false, key, it == b.data.end() ? std::nullopt : std::optional(it->second)});
+    std::optional<std::optional<std::string>> before;
+    if (it != b.data.end()) before.emplace(it->second);
+    b.undo.push_back({false, key, std::move(before)});
   }
   if (it == b.data.end()) b.data.emplace(std::move(key), std::move(value));
   else it->second = std::move(value);
@@ -443,7 +445,9 @@ void Database::stage_index(PendingBatch& b, std::string key, std::optional<std::
   b.bytes += key.size() + (value ? value->size() : 0);
   auto it = b.index.find(key);
   if (b.in_txn) {
-    b.undo.push_back({true, key, it == b.index.end() ? std::nullopt : std::optional(it->second)});
+    std::optional<std::optional<std::string>> before;
+    if (it != b.index.end()) before.emplace(it->second);
+    b.undo.push_back({true, key, std::move(before)});
   }
   if (it == b.index.end()) b.index.emplace(std::move(key), std::move(value));
   else it->second = std::move(value);

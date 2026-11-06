@@ -138,6 +138,7 @@ const Entry kEntries[] = {
     {"renamenx", {KS | W | FAST, {kReadWrite1to2, kNone}}},
     // hash
     {"hset", {W | HASH | FAST, {kWrite1, kNone}}},
+    {"hreplace", {W | HASH | SLOW, {kWrite1, kNone}}},
     {"hmset", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hsetnx", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hdel", {W | HASH | FAST, {kWrite1, kNone}}},

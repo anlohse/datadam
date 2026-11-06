@@ -209,6 +209,7 @@ The family differs from Redis in several ways:
 | Command | Syntax | Notes |
 |---|---|---|
 | HSET | `HSET key field value [field value ...]` | Number of new fields. |
+| HREPLACE | `HREPLACE key field value [field value ...]` | Datadam extension: atomically replaces the whole HASH field set, retaining TTL. OK; duplicate fields use the last value. WRONGTYPE never replaces another type. UNIQUE validates the final state. |
 | HMSET | `HMSET key field value [field value ...]` | Replies `OK`. |
 | HSETNX | `HSETNX key field value` | |
 | HGET | `HGET key field` | |

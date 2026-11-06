@@ -109,6 +109,25 @@ TEST_F(CollectionsTest, AllTypesPersistAcrossRestart) {
   EXPECT_EQ(run({"GET", "h"}).substr(0, 10), "-WRONGTYPE");
 }
 
+TEST_F(CollectionsTest, HashReplaceRetainsExpiryAndReplacesWholeFieldSet) {
+  EXPECT_EQ(run({"HSET", "h", "old", "gone", "keep", "before"}), integer(2));
+  EXPECT_EQ(run({"PEXPIRE", "h", "60000"}), integer(1));
+  auto expiry = run({"PEXPIRETIME", "h"});
+  EXPECT_EQ(run({"HREPLACE", "h", "keep", "after", "new", "value", "new", "last"}), "+OK\r\n");
+  EXPECT_EQ(run({"HGET", "h", "old"}), "$-1\r\n");
+  EXPECT_EQ(run({"HGET", "h", "new"}), bulk("last"));
+  EXPECT_EQ(run({"HLEN", "h"}), integer(2));
+  EXPECT_EQ(run({"PEXPIRETIME", "h"}), expiry);
+  close(); open();
+  EXPECT_EQ(run({"HGET", "h", "keep"}), bulk("after"));
+  EXPECT_EQ(run({"HLEN", "h"}), integer(2));
+  EXPECT_EQ(run({"PEXPIRETIME", "h"}), expiry);
+  EXPECT_EQ(run({"SET", "string", "safe"}), "+OK\r\n");
+  EXPECT_TRUE(run({"HREPLACE", "string", "f", "v"}).starts_with("-WRONGTYPE"));
+  EXPECT_EQ(run({"GET", "string"}), bulk("safe"));
+  EXPECT_TRUE(run({"HREPLACE", "h", "unpaired"}).starts_with("-ERR"));
+}
+
 TEST_F(CollectionsTest, DelDropsElementsAndNewVersionStartsEmpty) {
   for (int i = 0; i < 100; ++i) run({"HSET", "h", "f" + std::to_string(i), "v"});
   EXPECT_EQ(run({"HLEN", "h"}), integer(100));
