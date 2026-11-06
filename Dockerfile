@@ -78,6 +78,9 @@ COPY . .
 RUN cmake --preset linux-fuzz && cmake --build --preset linux-fuzz --parallel "$VCPKG_MAX_CONCURRENCY"
 
 FROM ubuntu:24.04 AS runtime
+# The base image's packages with the fixes published since it was built: the
+# image scan (CI, Trivy) fails on known vulnerabilities that have a fix.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/linux/datadam /usr/local/bin/datadam
 COPY datadam.conf /etc/datadam/datadam.conf
 # Protected mode off, as in the official Redis image: a container's ports are
