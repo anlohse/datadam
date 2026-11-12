@@ -96,8 +96,9 @@ def run_on(outs, node, command, timeout_s=3600, quiet=False):
         return inv.get("ResponseCode", -1), out, err
 
 
-def wait_ready(outs, limit_s=900):
-    """Every node registered with SSM and done with cloud-init."""
+def wait_ready(outs, limit_s=1800):
+    """Every node registered with SSM and done with cloud-init (which retries
+    the snap store for minutes before falling back to AWS's installer)."""
     ids = {n: v["id"] for n, v in outs["nodes"].items()}
     deadline = time.time() + limit_s
     pending = set(ids)
