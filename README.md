@@ -787,10 +787,13 @@ tail are in [bench/RESULTADOS.md](bench/RESULTADOS.md) (in Portuguese) and
    input. All fixed, with Redis's limits where Redis has one (`maxclients`, `client-query-buffer-limit`,
    `tcp-keepalive`, `enable-protected-configs`, read-only Lua globals, `CLIENT KILL` in `@admin`). CI now runs
    CodeQL and scans the image's packages (Trivy).
+   The larger-than-memory latency curve, measured again on AWS (200 GB on 64 GB of memory, 1:4 gaussian): a
+   GET p99 under 1 ms up to 30k operations/s and 1.3 ms at 40k, where Kvrocks is at 5.6 ms; saturation at
+   58.6k against Kvrocks's 50.7k. With the spinning shard locks, pipelined mixed in memory on 16 vCPUs went from
+   1.10M to 1.47M operations/s (Kvrocks 503k, Redis 519k). Details in [cloud/](cloud/README.md).
    Next steps, from what those tests showed:
-   - the larger-than-memory latency curve again (that run's memtier replayed the same keys:
-     `cloud.py large --curve`), and whether the ~40% of CPU left idle by mixed workloads on 16 vCPUs is gone
-     (not reproducible on the local machine);
+   - `io-threads auto` gives 8 threads on 16 vCPUs: 22–34% more on mixed workloads, 14% less on reads alone
+     (886k against 1.03M with 16); and mixed without a pipeline still leaves ~36% of those 16 vCPUs idle;
    - more fuzz targets (the `FT.SEARCH` and `IDX` query parsers, the memcache protocol, CONFIG and ACL rules,
      replicated WAL batches) with inputs long enough to nest deeply; and closing subscribed connections when
      their user loses the permission to their channels (now: at their next command);
