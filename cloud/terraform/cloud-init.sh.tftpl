@@ -23,8 +23,15 @@ chmod 600 /etc/datadam-bench.env
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q docker.io sysstat nvme-cli mdadm git python3
-snap install aws-cli --classic
+apt-get install -y -q docker.io sysstat nvme-cli mdadm git python3 unzip
+# The snap store can refuse connections for minutes (on 2026-11-12 every node
+# failed here): retry, then fall back to AWS's own installer.
+for try in 1 2 3 4 5; do snap install aws-cli --classic && break || sleep 20; done
+if [ ! -x /snap/bin/aws ]; then
+  curl -sSfL --retry 5 -o /tmp/awscli.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+  unzip -q -o /tmp/awscli.zip -d /tmp
+  /tmp/aws/install
+fi
 systemctl enable --now docker
 
 # Data on the instance's NVMe store when it has one (RAID 0 over several); it

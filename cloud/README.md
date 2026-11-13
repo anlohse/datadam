@@ -169,6 +169,42 @@ debt growing); 30k left it at about 40% CPU. From the second hour to the last, n
 gave 10 GB back (RSS 16.7 GB). Its pilot found the live WAL growing to ~10 GB, held by the seldom written column
 families (fixed in `9f219b9`: `max_total_wal_size` at 8 times the write buffer).
 
+Phase 3's latency curve again (2026-11-12, image `sha-7f2b825`, results in
+`bench/results/cloud-large-20261112-222751`; the 2026-10-27 curve was invalid, its memtier replayed the keys of
+the run before it): 200M keys × 1 KB incompressible on the i4i.2xlarge, then memtier 1:4 gaussian at fixed
+rates, 120 s each, with `--randomize`. datadam loaded in 1209 s (Kvrocks 1351 s) into 208 GB (Kvrocks 244 GB).
+
+| offered | datadam delivered | GET p99 / p99.9 ms | SET p99 ms | CPU idle | Kvrocks delivered | GET p99 / p99.9 ms | SET p99 ms | CPU idle |
+|---|---|---|---|---|---|---|---|---|
+| 10k | 10.0k | 0.90 / 1.12 | 0.63 | 72% | 10.0k | 1.51 / 2.62 | 0.70 | 71% |
+| 20k | 20.0k | 0.86 / 1.27 | 0.61 | 53% | 20.0k | 1.81 / 10.4 | 1.05 | 53% |
+| 30k | 30.0k | 0.90 / 1.41 | 0.58 | 36% | 29.9k | 6.94 / 12.6 | 6.69 | 39% |
+| 40k | 40.0k | 1.28 / 2.82 | 0.85 | 25% | 39.9k | 5.57 / 8.70 | 5.22 | 17% |
+| 50k | 49.9k | 4.83 / 7.78 | 3.28 | 8% | 47.0k | 6.75 / 10.7 | 6.50 | 3% |
+| 60k | 58.0k | 6.85 / 8.96 | 4.90 | 4% | 50.3k | 6.94 / 11.5 | 6.62 | 1% |
+| 80k | 58.6k | 7.30 / 9.34 | 5.22 | 4% | 50.7k | 6.72 / 10.0 | 6.37 | 0% |
+
+datadam keeps a GET p99 under 1 ms up to 30k and under 1.3 ms at 40k, where Kvrocks is at 5.6 ms (its p99 leaves
+the millisecond at 30k); it saturates at about 58.6k against Kvrocks's 50.7k, with similar latencies at
+saturation.
+
+Phase 4 again for datadam only (2026-11-12, image `sha-7f2b825`, `cloud.py scale-image`, results in
+`bench/results/cloud-scale-20261112-203810`, compared with `bench/scale_compare.py`), after the object cache's
+shard locks began to spin and `io-threads` became `auto` (one per CPU up to 8, then half: 8 on 16 vCPUs, where
+the 2026-10-27 run used 16):
+
+| ops/s | 4 vCPUs | 8 vCPUs | 16 vCPUs |
+|---|---|---|---|
+| read gaussian | 254k → 282k | 513k → 473k | 1033k → 886k |
+| mixed 1:4 | 156k → 179k | 263k → 262k | 469k → 571k |
+| mixed 1:4, pipeline 16 | 440k → 524k | 635k → 685k | 1095k → 1468k |
+
+At the same `io-threads` the spinning locks gained 8–19% pipelined (16 vCPUs, 8 threads: 1265k → 1417k).
+`auto`'s 8 threads on 16 vCPUs gain 22–34% on mixed workloads and lose 14% on reads alone (16 threads: 1033k);
+its two runs agree within 1%. Mixed without a pipeline still leaves ~36% of the 16 vCPUs idle. The 8-vCPU reads
+(482k and 464k against 512k and 514k, the same 8 threads) are unexplained. Redis and Kvrocks were not run again:
+their 2026-10-27 numbers stand (16 vCPUs: reads 337k / 617k, mixed 305k / 359k, pipelined 519k / 503k).
+
 ## Costs
 
 Approximate on-demand prices in us-east-1 (check the AWS pricing calculator); Spot is usually 60–70% less:
