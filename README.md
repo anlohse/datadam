@@ -9,6 +9,19 @@ roadmap).
 
 **Full documentation for users and developers: [docs/](docs/README.md).**
 
+## Installing
+
+Releases are on [GitHub](https://github.com/anlohse/datadam/releases): a container image, a Linux tarball and a
+Debian/Ubuntu package ([what each holds, and the versioning policy](docs/releases.md); changes in the
+[CHANGELOG](CHANGELOG.md)).
+
+```bash
+docker run -d -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:0.2
+sudo apt install ./datadam_0.2.0_amd64.deb      # Debian 13 / Ubuntu 24.04+: a systemd service on 127.0.0.1
+```
+
+Security issues: see [SECURITY.md](SECURITY.md).
+
 ## Building
 
 Requirements: CMake ≥ 3.25, a C++20 compiler (MSVC 2022+/GCC 13+/Clang 17+) and [vcpkg](https://vcpkg.io).

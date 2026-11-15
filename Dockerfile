@@ -39,7 +39,11 @@ RUN --mount=type=cache,target=/root/.cache/vcpkg \
 
 FROM deps AS build
 COPY . .
-RUN cmake --preset linux && cmake --build --preset linux --parallel "$VCPKG_MAX_CONCURRENCY"
+# The commit for datadam --version and INFO (the context has no .git):
+#   --build-arg GIT_COMMIT=$(git rev-parse HEAD)
+ARG GIT_COMMIT=""
+RUN cmake --preset linux -DDATADAM_GIT_COMMIT="$GIT_COMMIT" \
+    && cmake --build --preset linux --parallel "$VCPKG_MAX_CONCURRENCY"
 
 FROM build AS test
 RUN ctest --preset linux && sh tests/run_integration.sh build/linux/datadam
@@ -76,6 +80,15 @@ FROM deps AS fuzz
 RUN apt-get update && apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev llvm-18 && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN cmake --preset linux-fuzz && cmake --build --preset linux-fuzz --parallel "$VCPKG_MAX_CONCURRENCY"
+
+# The release packages (packaging/build.sh): a tarball and a .deb, written to
+# the host's dist/:
+#   docker build --target packages --build-arg GIT_COMMIT=$(git rev-parse HEAD) -o dist .
+FROM build AS package
+RUN VCPKG_SHARE=/src/build/vcpkg_installed/x64-linux/share sh packaging/build.sh build/linux/datadam /out
+
+FROM scratch AS packages
+COPY --from=package /out/ /
 
 FROM ubuntu:24.04 AS runtime
 # The base image's packages with the fixes published since it was built: the

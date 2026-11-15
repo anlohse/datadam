@@ -1,0 +1,220 @@
+# A release, from a version tag on a commit of main (docs/releases.md):
+#   git tag -a v0.2.0 -m "datadam 0.2.0" && git push origin v0.2.0
+# The tag must match the version in CMakeLists.txt and have a section in
+# CHANGELOG.md. The commit is built and tested again, its image scanned, and
+# only then published:
+#   - ghcr.io/<owner>/datadam:<version>, :<major>.<minor> and :latest, with an
+#     SBOM and build provenance attached;
+#   - a GitHub release with the Linux tarball, the .deb, the dependencies' SPDX
+#     documents and SHA256SUMS, its notes the CHANGELOG.md section, every file
+#     with a build provenance attestation (gh attestation verify).
+# A pull request that changes the packaging, or a manual run, is a dry run: the
+# same steps, with the version from CMakeLists.txt, and nothing published.
+# The actions are pinned to commits: this job can write packages and releases.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - packaging/**
+      - Dockerfile
+      - CHANGELOG.md
+      - CMakeLists.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, test and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: write      # the GitHub release
+      packages: write      # the image, to ghcr.io
+      id-token: write      # attestations
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Version and release notes
+        id: version
+        run: |
+          project=$(sed -n 's/^project(datadam VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          case $GITHUB_REF in
+            refs/tags/v*) version=${GITHUB_REF_NAME#v} ;;
+            *) version=$project; echo "::notice::dry run: version $version, nothing is published" ;;
+          esac
+          if [ "$version" != "$project" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME does not match the version in CMakeLists.txt ($project)"
+            exit 1
+          fi
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 { on = 1; next } on && /^## \[/ { exit } on' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      # The cache CI fills on main: the dependencies are not built again.
+      - name: Dependencies (vcpkg)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          target: deps
+          build-args: BUILD_JOBS=4
+          cache-from: type=gha,scope=linux-deps
+
+      - name: Build, unit tests and integration test
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          target: test
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=linux-deps
+
+      - name: Packages (tarball, .deb)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          target: packages
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=linux-deps
+          outputs: type=local,dest=dist
+
+      - name: Check the packages
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ls -l dist
+          test -f "dist/datadam-$VERSION-linux-x86_64.tar.gz"
+          test -f "dist/datadam_${VERSION}_amd64.deb"
+          dpkg-deb --info "dist/datadam_${VERSION}_amd64.deb"
+          tar -xzf "dist/datadam-$VERSION-linux-x86_64.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/datadam-$VERSION-linux-x86_64/datadam" --version | tee "$RUNNER_TEMP/version.txt"
+          grep -qx "datadam $VERSION (commit $GITHUB_SHA)" "$RUNNER_TEMP/version.txt"
+          # The .deb on a clean Ubuntu: it installs, and the server answers.
+          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:24.04 bash -ec "
+            apt-get update -q >/dev/null && apt-get install -y -q /dist/datadam_${VERSION}_amd64.deb >/dev/null
+            datadam --version
+            su -s /bin/sh datadam -c 'datadam /etc/datadam/datadam.conf --port 6390 --memcache-port 0' &
+            for i in \$(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/6390) 2>/dev/null && break; sleep 0.2; done
+            exec 3<>/dev/tcp/127.0.0.1/6390
+            printf 'PING\r\n' >&3
+            head -c 7 <&3 | grep -q PONG
+            echo 'the packaged server answers'"
+          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Runtime image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=linux-deps
+          tags: datadam:release
+          load: true
+
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: datadam:release
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: redis-cli suite against the image
+        run: bash tests/docker_redis_cli.sh datadam:release
+
+      # ---- publish: everything above passed, and this is a version tag
+
+      - name: Image tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the image
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=linux-deps
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          push: true
+
+      - name: Attest the image
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest the files
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+        with:
+          subject-path: dist/*
+
+      - name: GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "docker run -p 6379:6379 -v datadam-data:/var/lib/datadam $IMAGE:$VERSION"
+            echo '```'
+            echo
+            echo "Image digest: \`$DIGEST\`. Debian/Ubuntu (24.04 or later): \`sudo apt install ./datadam_${VERSION}_amd64.deb\`."
+            echo "Verify a file: \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."
+          } > "$RUNNER_TEMP/release.md"
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "datadam $VERSION" \
+            --notes-file "$RUNNER_TEMP/release.md"

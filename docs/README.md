@@ -12,7 +12,8 @@ Start here if you want to run datadam or build an application on it.
 
 | Document | What it covers |
 |---|---|
-| [Getting started](getting-started.md) | Building on Windows, Linux and Docker; running the server; a first session. |
+| [Getting started](getting-started.md) | Installing a release or building on Windows, Linux and Docker; running the server; a first session. |
+| [Releases](releases.md) | Versions and what they promise, the storage format, what a release publishes, verifying and upgrading. |
 | [Configuration](configuration.md) | Every option, its default, and which ones `CONFIG SET` can change at run time. |
 | [Commands](commands.md) | Reference for every supported command, with the differences from Redis. |
 | [Transactions](transactions.md) | `MULTI`/`EXEC` blocks and `WATCH`: what they guarantee. |

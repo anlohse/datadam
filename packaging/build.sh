@@ -74,4 +74,13 @@ Description: Redis-compatible key-value store on RocksDB
 EOF
 dpkg-deb --root-owner-group --build "$pkg" "$out/datadam_${version}_$deb_arch.deb" >/dev/null
 
+# ---- the libraries linked into the binary (RocksDB, OpenSSL, LuaJIT...): the
+# SPDX document vcpkg writes for each, when VCPKG_SHARE points at them.
+if [ -n "${VCPKG_SHARE:-}" ]; then
+  docs=$(cd "$VCPKG_SHARE" && ls -- */vcpkg.spdx.json)
+  [ -n "$docs" ] || { echo "packaging: no vcpkg.spdx.json under $VCPKG_SHARE" >&2; exit 1; }
+  # shellcheck disable=SC2086
+  tar -C "$VCPKG_SHARE" --owner=0 --group=0 --numeric-owner -czf "$out/datadam-$version-dependencies-spdx.tar.gz" $docs
+fi
+
 ls -l "$out"
