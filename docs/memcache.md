@@ -94,7 +94,7 @@ find, without changing its CAS value; with an `exptime` in the past the key is d
 | `incr`, `decr` | `incr <key> <delta> [noreply]` | The new value. `delta` and the stored value are unsigned 64-bit decimals. `incr` wraps around at 2^64; `decr` stops at 0. `NOT_FOUND` if the key does not hold a string. Flags and TTL are kept; the CAS value changes. |
 | `touch` | `touch <key> <exptime> [noreply]` | `TOUCHED` or `NOT_FOUND`. Sets the expiration time of a key of any type, without changing its CAS value. |
 | `flush_all` | `flush_all [delay] [noreply]` | `OK`. Deletes every key at once, like Redis `FLUSHALL`. `delay` must be an integer and is ignored. |
-| `version` | `version` | `VERSION <datadam version>`, e.g. `VERSION 0.1.0`. |
+| `version` | `version` | `VERSION <datadam version>`, e.g. `VERSION 0.2.0`. |
 | `verbosity` | `verbosity [...] [noreply]` | `OK`. Has no effect. |
 | `stats` | `stats [...]` | The general statistics (see [stats](#stats)), whatever the arguments. |
 | `auth` | `auth [user] <password>` | `OK`. See [Authentication and permissions](#authentication-and-permissions). |

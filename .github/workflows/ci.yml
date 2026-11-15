@@ -2,7 +2,8 @@
 # Windows (MSVC). The vcpkg dependencies are cached: the first run builds them
 # (RocksDB takes a while), later runs reuse them until vcpkg.json changes.
 # A push to main whose Linux tests all pass publishes the image to
-# ghcr.io/<owner>/datadam, tagged latest and sha-<commit>.
+# ghcr.io/<owner>/datadam, tagged edge and sha-<commit>; releases (release.yml)
+# publish <version>, <major>.<minor> and latest.
 name: CI
 
 on:
@@ -51,14 +52,18 @@ jobs:
         with:
           context: .
           target: test
-          build-args: BUILD_JOBS=4
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=linux-deps
 
       - name: Runtime image
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: BUILD_JOBS=4
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=linux-deps
           tags: datadam:latest
           load: true
@@ -92,7 +97,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=edge
             type=sha,format=short
 
       - name: Log in to ghcr.io
@@ -108,7 +113,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: BUILD_JOBS=4
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=linux-deps
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

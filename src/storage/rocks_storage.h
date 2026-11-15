@@ -43,6 +43,14 @@ class StorageError : public std::runtime_error {
 
 enum class Cf : uint8_t { Meta, Data, Index, System };
 
+// The layout of the data on disk, kept in the System column family under
+// kStorageFormatKey. A change that an older datadam would misread raises it;
+// a datadam then refuses a directory with a format newer than its own instead
+// of reading it. A directory without the key (new, or from datadam 0.1) is
+// format 1. See docs/releases.md.
+inline constexpr uint32_t kStorageFormat = 1;
+inline constexpr std::string_view kStorageFormatKey = "storage-format";
+
 struct StorageOptions {
   std::string dir = "./data";
   FsyncPolicy fsync = FsyncPolicy::EverySec;
@@ -304,6 +312,10 @@ class RocksStorage {
  private:
   class DataGcFilterFactory;
   class IndexGcFilterFactory;
+
+  // At open: records kStorageFormat in a directory without one, refuses one
+  // written in a newer format (StorageError).
+  void check_storage_format();
 
   bool skip_writes() const { return opts_.write_path == WritePath::Memory; }
   void wrote();  // after every write: wakes on_next_write waiters

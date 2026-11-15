@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(datadam VERSION 0.1.0 LANGUAGES CXX)
+project(datadam VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,24 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DATADAM_BUILD_TESTS "Build unit tests" ON)
 set(DATADAM_SANITIZE "" CACHE STRING "Sanitizers to build with (GCC/Clang): address,undefined or thread")
 option(DATADAM_FUZZ "Build the libFuzzer targets in fuzz/ (Clang, with fuzzer-no-link in DATADAM_SANITIZE)" OFF)
+
+# The commit the binary was built from (datadam --version, INFO server). Release
+# and image builds pass it (-DDATADAM_GIT_COMMIT=...: the Docker context has no
+# .git); otherwise it is read from git when the build is configured.
+set(DATADAM_GIT_COMMIT "" CACHE STRING "Commit the build comes from (default: git rev-parse HEAD at configure time)")
+set(datadam_commit "${DATADAM_GIT_COMMIT}")
+if(datadam_commit STREQUAL "")
+  find_package(Git QUIET)
+  if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                    OUTPUT_VARIABLE datadam_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  endif()
+  if(datadam_commit STREQUAL "")
+    set(datadam_commit "unknown")
+  endif()
+endif()
+# A file of its own: a new commit recompiles one translation unit, not all.
+configure_file(src/util/build_info.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_info.cpp @ONLY)
 
 find_package(asio CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
@@ -29,6 +47,7 @@ else()
 endif()
 
 add_library(datadam_core STATIC
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/build_info.cpp
   src/util/strings.cpp
   src/util/log.cpp
   src/util/sha256.cpp

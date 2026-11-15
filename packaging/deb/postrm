@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null || true
+fi
+# The data in /var/lib/datadam and the datadam user stay, even on purge:
+# remove them by hand once the data is no longer needed.

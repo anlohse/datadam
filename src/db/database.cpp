@@ -122,7 +122,9 @@ void Database::clear_for_full_sync() {
   auto batch = storage_.batch();
   {
     auto c = storage_.cursor(Cf::System, "", std::string(64, '\xff'), false);
-    for (c->seek_first(); c->valid(); c->next()) batch.del(Cf::System, c->key());
+    for (c->seek_first(); c->valid(); c->next()) {
+      if (c->key() != kStorageFormatKey) batch.del(Cf::System, c->key());  // the directory's layout stays
+    }
     c->check_status();
   }
   if (!batch.empty()) storage_.write(batch);

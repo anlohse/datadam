@@ -1,0 +1,31 @@
+[Unit]
+Description=datadam, a Redis-compatible key-value store on RocksDB
+Documentation=https://github.com/anlohse/datadam
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=datadam
+Group=datadam
+ExecStart=/usr/bin/datadam /etc/datadam/datadam.conf
+Restart=on-failure
+# A clean stop syncs the WAL and closes RocksDB.
+TimeoutStopSec=60
+LimitNOFILE=65536
+UMask=0027
+# The server writes only its data and its configuration (CONFIG REWRITE).
+ProtectSystem=strict
+ReadWritePaths=/var/lib/datadam /etc/datadam
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# No MemoryDenyWriteExecute: LuaJIT compiles scripts to machine code.
+
+[Install]
+WantedBy=multi-user.target

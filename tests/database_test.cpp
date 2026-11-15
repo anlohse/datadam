@@ -7,6 +7,8 @@
 #include <random>
 #include <thread>
 
+#include <rocksdb/db.h>
+
 #include "cache/object_cache.h"
 #include "db/database.h"
 #include "storage/nowait_fs.h"
@@ -22,6 +24,23 @@ using namespace datadam;
 namespace fs = std::filesystem;
 
 namespace {
+
+// Writes the storage format straight into a closed data directory, as another
+// datadam would have left it (RocksStorage::open refuses some of them).
+void set_storage_format(const fs::path& dir, const std::string& format) {
+  std::vector<rocksdb::ColumnFamilyDescriptor> families;
+  for (const char* name : {rocksdb::kDefaultColumnFamilyName.c_str(), "meta", "data", "index"}) {
+    families.emplace_back(name, rocksdb::ColumnFamilyOptions());
+  }
+  std::vector<rocksdb::ColumnFamilyHandle*> handles;
+  rocksdb::DB* db = nullptr;
+  ASSERT_TRUE(rocksdb::DB::Open(rocksdb::DBOptions(), dir.string(), families, &handles, &db).ok());
+  rocksdb::Slice key(kStorageFormatKey.data(), kStorageFormatKey.size());
+  EXPECT_TRUE(db->Put(rocksdb::WriteOptions(), handles[0], key, format).ok());
+  for (auto* h : handles) db->DestroyColumnFamilyHandle(h);
+  EXPECT_TRUE(db->Close().ok());
+  delete db;
+}
 
 class DatabaseTest : public ::testing::Test {
  protected:
@@ -92,6 +111,42 @@ TEST_F(DatabaseTest, PersistsAcrossRestart) {
   EXPECT_EQ(value("durable"), "yes");
   EXPECT_EQ(value("big"), big);
   EXPECT_EQ(cache_->stats().items, 1u);  // only the small one was cached on read
+}
+
+TEST_F(DatabaseTest, RecordsTheStorageFormatAndRefusesANewerOne) {
+  std::string format;
+  ASSERT_TRUE(storage_->get(Cf::System, kStorageFormatKey, &format));
+  EXPECT_EQ(format, std::to_string(kStorageFormat));
+
+  // A directory from datadam 0.1 has no format: it is format 1, recorded on open.
+  {
+    auto b = storage_->batch();
+    b.del(Cf::System, kStorageFormatKey);
+    storage_->write(b);
+  }
+  db_->put("kept", str("yes"));
+  close();
+  open();
+  ASSERT_TRUE(storage_->get(Cf::System, kStorageFormatKey, &format));
+  EXPECT_EQ(format, "1");
+  EXPECT_EQ(value("kept"), "yes");
+
+  // Written by a newer datadam, or unreadable: refused, the data left as it is.
+  for (std::string stored : {std::to_string(kStorageFormat + 1), std::string("x")}) {
+    storage_->put(Cf::System, kStorageFormatKey, stored);
+    close();
+    try {
+      open();
+      ADD_FAILURE() << "opened a directory in storage format '" << stored << "'";
+    } catch (const StorageError& e) {
+      EXPECT_NE(std::string(e.what()).find(stored == "x" ? "unreadable" : "newer datadam"), std::string::npos)
+          << e.what();
+    }
+    close();
+    set_storage_format(dir_, std::to_string(kStorageFormat));  // by hand, to go on
+    open();
+    EXPECT_EQ(value("kept"), "yes");
+  }
 }
 
 TEST_F(DatabaseTest, ReadsComeFromCacheAfterFirstLoad) {

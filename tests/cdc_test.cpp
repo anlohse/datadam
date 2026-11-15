@@ -290,6 +290,12 @@ TEST_F(CdcTest, WalReaderGoesOnFromWhereItStopped) {
 TEST_F(CdcTest, WalAReplicaNeedsIsHeld) {
   close();
   open(3600, 1, 1ULL << 30);  // keep one byte, but up to 1 GB more that a replica needs
+  // The WAL of the first open (it wrote the storage format) is not needed: out of the way first.
+  storage_->flush();
+  for (int i = 0; i < 50; ++i) {
+    storage_->trim_wal();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   run({"SET", "a", "1"});
   uint64_t first = storage_->latest_sequence();
   storage_->flush();  // a new WAL file; the old one is archived

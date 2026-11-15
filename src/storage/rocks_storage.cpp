@@ -15,6 +15,7 @@
 #include <rocksdb/write_batch.h>
 
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <format>
 #include <map>
@@ -284,8 +285,31 @@ std::unique_ptr<RocksStorage> RocksStorage::open(const StorageOptions& opts) {
   };
   check(rocksdb::DB::Open(db_opts, opts.dir, families, &s->handles_, &s->db_), "open");
   s->meta_ = s->handles_[1];
+  s->check_storage_format();
   s->gc_db_.store(s->db_.get(), std::memory_order_release);
   return s;
+}
+
+void RocksStorage::check_storage_format() {
+  std::string raw;
+  auto st = db_->Get(rocksdb::ReadOptions(), handles_[0], slice(kStorageFormatKey), &raw);
+  if (st.IsNotFound()) {
+    rocksdb::WriteOptions w;
+    w.sync = true;
+    check(db_->Put(w, handles_[0], slice(kStorageFormatKey), std::to_string(kStorageFormat)), "put");
+    return;
+  }
+  check(st, "get");
+  uint32_t format = 0;
+  auto [end, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), format);
+  if (ec != std::errc() || end != raw.data() + raw.size() || format == 0) {
+    throw StorageError(std::format("{}: unreadable storage format '{}'", opts_.dir, raw));
+  }
+  if (format > kStorageFormat) {
+    throw StorageError(std::format("{} holds data in storage format {}, written by a newer datadam; datadam {} reads "
+                                   "formats up to {}",
+                                   opts_.dir, format, DATADAM_VERSION, kStorageFormat));
+  }
 }
 
 RocksStorage::~RocksStorage() {
