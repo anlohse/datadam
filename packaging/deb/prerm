@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+
+# On an upgrade the server keeps running; postinst restarts it.
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+  systemctl disable --now datadam.service >/dev/null || true
+fi

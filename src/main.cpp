@@ -1,6 +1,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 #include "cache/object_cache.h"
@@ -8,6 +9,7 @@
 #include "db/database.h"
 #include "server/server.h"
 #include "storage/rocks_storage.h"
+#include "util/build_info.h"
 #include "util/clock.h"
 #include "util/log.h"
 #include "util/strings.h"
@@ -75,19 +77,28 @@ class Maintenance {
   std::thread thread_;  // last: starts after the other members exist
 };
 
-void usage() {
-  std::fprintf(stderr,
+void usage(std::FILE* out) {
+  std::fprintf(out,
                "usage: datadam [config-file] [--option value]...\n"
+               "       datadam --version | --help\n"
                "  e.g. datadam datadam.conf --port 6380 --cache-max-memory 1gb\n");
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2 && (std::string_view(argv[1]) == "--version" || std::string_view(argv[1]) == "-v")) {
+    std::printf("datadam %s (commit %s)\n", DATADAM_VERSION, git_commit());
+    return 0;
+  }
+  if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h")) {
+    usage(stdout);
+    return 0;
+  }
   Config cfg;
   if (auto err = cfg.parse_args(argc, argv); !err.empty()) {
     std::fprintf(stderr, "datadam: %s\n", err.c_str());
-    usage();
+    usage(stderr);
     return 1;
   }
   LogLevel level;
@@ -129,8 +140,8 @@ int main(int argc, char** argv) {
     Server server(ctx);
     server.start();
     auto port_or_off = [](uint16_t p) { return p ? std::to_string(p) : std::string("off"); };
-    log_info("datadam {} | redis {}:{} | tls {} | memcache {} | io threads {} | data dir {} | fsync {}", DATADAM_VERSION,
-             cfg.bind, port_or_off(cfg.port), port_or_off(cfg.tls_port), port_or_off(cfg.memcache_port),
+    log_info("datadam {} ({}) | redis {}:{} | tls {} | memcache {} | io threads {} | data dir {} | fsync {}",
+             DATADAM_VERSION, std::string_view(git_commit()).substr(0, 12), cfg.bind, port_or_off(cfg.port), port_or_off(cfg.tls_port), port_or_off(cfg.memcache_port),
              cfg.io_thread_count(), cfg.dir, fsync_policy_name(cfg.fsync));
     if (cfg.tls_port != 0) {
       log_info("tls: certificate {} | client certificates {} | login by certificate CN {}", cfg.tls_cert_file,

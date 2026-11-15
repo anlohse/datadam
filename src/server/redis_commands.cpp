@@ -21,6 +21,7 @@
 #include "json/json_path.h"
 #include "server/command.h"
 #include "server/read_pool.h"
+#include "util/build_info.h"
 #include "util/clock.h"
 #include "util/process.h"
 #include "util/strings.h"
@@ -1364,9 +1365,10 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
 
   if (want("server")) {
     out += std::format(
-        "# Server\r\ndatadam_version:{}\r\nredis_version:{}\r\nredis_mode:standalone\r\nprocess_id:{}\r\nrun_id:{}\r\n"
+        "# Server\r\ndatadam_version:{}\r\ndatadam_git_sha1:{}\r\nredis_version:{}\r\nredis_mode:standalone\r\n"
+        "process_id:{}\r\nrun_id:{}\r\n"
         "tcp_port:{}\r\nmemcache_port:{}\r\nio_threads:{}\r\nuptime_in_seconds:{}\r\nuptime_in_days:{}\r\n\r\n",
-        DATADAM_VERSION, kRedisCompatVersion, DATADAM_GETPID(), ctx.run_id, ctx.config.port, ctx.config.memcache_port,
+        DATADAM_VERSION, git_commit(), kRedisCompatVersion, DATADAM_GETPID(), ctx.run_id, ctx.config.port, ctx.config.memcache_port,
         ctx.config.io_thread_count(), uptime_s, uptime_s / 86400);
   }
   if (want("clients")) {
@@ -1432,13 +1434,14 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
     WriteBatchStats wb = ctx.db.write_batch_stats();
     Backups::Status backup = ctx.backups.status();
     out += std::format(
-        "# Persistence\r\nengine:rocksdb\r\ndir:{}\r\nfsync:{}\r\nwrite_batching:{}\r\nwrite_batches:{}\r\n"
+        "# Persistence\r\nengine:rocksdb\r\nstorage_format:{}\r\ndir:{}\r\nfsync:{}\r\nwrite_batching:{}\r\n"
+        "write_batches:{}\r\n"
         "write_batch_ops:{}\r\nwrite_batch_conflicts:{}\r\nrocksdb_estimate_num_keys:{}\r\n"
         "rocksdb_live_sst_bytes:{}\r\nrocksdb_live_wal_bytes:{}\r\nrocksdb_memtable_bytes:{}\r\n"
         "rocksdb_block_cache_usage:{}\r\n"
         "rdb_bgsave_in_progress:{}\r\nrdb_last_save_time:{}\r\nrdb_last_bgsave_status:{}\r\n"
         "last_backup_path:{}\r\nlast_backup_duration_ms:{}\r\n",
-        ctx.config.dir, fsync_policy_name(st.fsync_policy()), ctx.write_batching ? "yes" : "no", wb.commits,
+        kStorageFormat, ctx.config.dir, fsync_policy_name(st.fsync_policy()), ctx.write_batching ? "yes" : "no", wb.commits,
         wb.writes, wb.conflicts, st.estimate_keys(), st.property("rocksdb.live-sst-files-size"),
         st.live_wal_bytes(), st.property("rocksdb.cur-size-all-mem-tables"), st.property("rocksdb.block-cache-usage"),
         backup.in_progress ? 1 : 0, backup.last_save_s, backup.last_ok ? "ok" : "err", backup.last_path,

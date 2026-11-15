@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+  if ! getent passwd datadam >/dev/null; then
+    adduser --system --group --home /var/lib/datadam --no-create-home --quiet datadam
+  fi
+  install -d -o datadam -g datadam -m 0750 /var/lib/datadam
+  # The server writes its configuration back (CONFIG REWRITE); it may hold
+  # passwords, so only the datadam user reads it.
+  chown datadam:datadam /etc/datadam /etc/datadam/datadam.conf
+  chmod 0750 /etc/datadam
+  chmod 0640 /etc/datadam/datadam.conf
+fi
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null || true
+  if [ "$1" = configure ] && [ -z "${2:-}" ]; then
+    # First install: started, and at every boot.
+    systemctl enable --now datadam.service >/dev/null || true
+  else
+    # Upgrade: the new binary, if it was running.
+    systemctl try-restart datadam.service >/dev/null || true
+  fi
+fi
