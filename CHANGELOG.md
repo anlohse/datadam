@@ -6,6 +6,29 @@ the versions [Semantic Versioning](https://semver.org); what a version promises,
 
 ## [Unreleased]
 
+### Added
+
+- Client libraries' own test suites run against datadam (`tests/clients/`, the Clients workflow: nightly against
+  `:edge`, on demand, on pull requests labelled `clients`, and before every release): redis-py 8.1.0 (sync and
+  asyncio, RESP2 and RESP3) and node-redlock 5.0.0-beta.2. What datadam does not implement is listed with the
+  reason in `tests/clients/redis-py.skip`; see [docs/clients.md](docs/clients.md).
+- `COMMAND` and `COMMAND INFO` describe every command as Redis 7 does (arity, flags, key positions, ACL
+  categories, key specifications), and `COMMAND GETKEYS` returns a command line's keys.
+- `INFO` takes several sections, has `arch_bits` in `server` and a `cluster` section (`cluster_enabled:0`).
+- `CLIENT LIST` and `CLIENT INFO` show `laddr`; `CLIENT KILL LADDR`.
+
+### Fixed
+
+- `AUTH` and `HELLO` were checked against the user's command permissions: a user without them could not log in
+  again as another.
+- A subcommand datadam does not have was refused as a permission error (`NOPERM`) and logged in `ACL LOG`; it is
+  now refused as unknown, before permissions are checked.
+- ACL rules naming a Redis command datadam does not have (`+cluster`) were refused; they now load and cover
+  nothing.
+- `PUBSUB NUMSUB` and `SHARDNUMSUB` replied a map in RESP3; they reply a flat array, as Redis does.
+- `CONFIG RESETSTAT` reset only the latency histograms; it now resets the `INFO stats` counters,
+  `commandstats` and `errorstats` too.
+
 ## [0.2.0] - 2026-11-15
 
 The first published release: a container image, a Linux tarball and a Debian/Ubuntu package, with checksums,

@@ -27,6 +27,7 @@ Start here if you want to run datadam or build an application on it.
 | [Security](security.md) | Passwords, ACL users, TLS and client certificates. |
 | [memcache](memcache.md) | The memcache text protocol, sharing the keyspace with Redis clients. |
 | [Operations](operations.md) | Durability, memory sizing, monitoring with `INFO`, backups and troubleshooting. |
+| [Client libraries](clients.md) | Client libraries' own test suites run against datadam (redis-py, node-redlock): what passes, what does not, and why. |
 | [Benchmarks](benchmarks.md) | Measured results against Redis and Kvrocks, and how to reproduce them. |
 
 ## Developer guide
