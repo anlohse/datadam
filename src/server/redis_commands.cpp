@@ -220,11 +220,11 @@ void client_list(Cmd& c) {
   c.r.bulk(out);
 }
 
-// CLIENT KILL ip:port | CLIENT KILL [ID id] [ADDR ip:port] [USER name] [TYPE type] [SKIPME yes|no] [MAXAGE s]
+// CLIENT KILL ip:port | CLIENT KILL [ID id] [ADDR ip:port] [LADDR ip:port] [USER name] [TYPE type] [SKIPME yes|no] [MAXAGE s]
 void client_kill(Cmd& c) {
   bool old_form = c.args.size() == 3;
   std::optional<uint64_t> id;
-  std::optional<std::string> addr, user, type;
+  std::optional<std::string> addr, laddr, user, type;
   std::optional<int64_t> max_age;
   bool skip_me = true;
   if (old_form) {
@@ -239,6 +239,8 @@ void client_kill(Cmd& c) {
         if (!id) return c.r.error("ERR client-id should be greater than 0");
       } else if (opt == "addr") {
         addr = std::string(v);
+      } else if (opt == "laddr") {
+        laddr = std::string(v);
       } else if (opt == "user") {
         user = std::string(v);
       } else if (opt == "type") {
@@ -263,6 +265,7 @@ void client_kill(Cmd& c) {
     {
       std::lock_guard lock(e->mu);
       if (addr && e->addr != *addr) continue;
+      if (laddr && e->laddr != *laddr) continue;
       if (user && e->user != *user) continue;
     }
     bool me = e->id == c.client.id;
@@ -308,19 +311,143 @@ void cmd_client(Cmd& c) {
 
 const std::unordered_map<std::string, CommandSpec>& command_table();
 
+namespace {
+
+// A command's key arguments are a range whose end depends on the arguments
+// (a numkeys argument, or two ranges apart): clients ask COMMAND GETKEYS.
+bool movable_keys(const CommandSpec& spec) {
+  const KeyRange& a = spec.keys[0];
+  const KeyRange& b = spec.keys[1];
+  if (a.numkeys_at > 0 || b.numkeys_at > 0) return true;
+  return b.first != 0 && !(a.last > 0 && b.first == a.last + 1 && a.step == 1 && b.step == 1);
+}
+
+// One command as COMMAND INFO describes it (Redis 7): name, arity, flags, the
+// legacy first/last/step key positions, ACL categories, tips, key
+// specifications and subcommands.
+void command_entry(Reply& r, std::string_view name, const CommandSpec& spec) {
+  const uint32_t cats = spec.categories;
+  std::vector<std::string_view> flags;
+  if (cats & kCatWrite) flags.push_back("write");
+  else if (cats & kCatRead) flags.push_back("readonly");
+  if (cats & kCatAdmin) flags.push_back("admin");
+  if (cats & kCatPubSub) flags.push_back("pubsub");
+  if (cats & kCatFast) flags.push_back("fast");
+  if (cats & kCatBlocking) flags.push_back("blocking");
+  if (name == "auth" || name == "hello") flags.push_back("no_auth");
+  if (movable_keys(spec)) flags.push_back("movablekeys");
+
+  r.array(10);
+  r.bulk(name);
+  r.integer(spec.arity);
+  r.set(flags.size());
+  for (auto f : flags) r.simple(f);
+  // The legacy key positions: the first range, joined with a second that
+  // follows it; 0 0 0 when the keys move (numkeys) or there are none.
+  const KeyRange& a = spec.keys[0];
+  if (a.first == 0 || a.numkeys_at > 0) {
+    r.integer(0), r.integer(0), r.integer(0);
+  } else {
+    int last = spec.keys[1].first != 0 && !movable_keys(spec) ? spec.keys[1].last : a.last;
+    r.integer(a.first), r.integer(last), r.integer(a.step);
+  }
+  std::vector<std::string_view> names;
+  uint32_t seen = 0;
+  for (const auto& [cat, bit] : acl_categories()) {
+    if (bit == 0 || bit == ~0u || (seen & bit) || !(cats & bit)) continue;
+    seen |= bit;
+    names.push_back(cat);
+  }
+  r.set(names.size());
+  for (auto n : names) r.simple(std::format("@{}", n));
+  r.array(0);  // tips
+
+  size_t nspecs = (a.first != 0 ? 1 : 0) + (spec.keys[1].first != 0 ? 1 : 0);
+  r.array(nspecs);
+  for (const KeyRange& k : spec.keys) {
+    if (k.first == 0) continue;
+    std::vector<std::string_view> kflags;
+    kflags.push_back((k.access & kKeyWrite) ? "RW" : "RO");
+    if (k.access & kKeyRead) kflags.push_back("access");
+    if (k.access & kKeyWrite) kflags.push_back("update");
+    r.map(3);
+    r.bulk("flags");
+    r.set(kflags.size());
+    for (auto f : kflags) r.simple(f);
+    r.bulk("begin_search");
+    r.map(2);
+    r.bulk("type"), r.bulk("index");
+    r.bulk("spec"), r.map(1), r.bulk("index"), r.integer(k.numkeys_at > 0 ? k.numkeys_at : k.first);
+    r.bulk("find_keys");
+    r.map(2);
+    if (k.numkeys_at > 0) {
+      r.bulk("type"), r.bulk("keynum");
+      r.bulk("spec"), r.map(3);
+      r.bulk("keynumidx"), r.integer(0);
+      r.bulk("firstkey"), r.integer(k.first - k.numkeys_at);
+      r.bulk("keystep"), r.integer(k.step);
+    } else {
+      r.bulk("type"), r.bulk("range");
+      r.bulk("spec"), r.map(3);
+      r.bulk("lastkey"), r.integer(k.last < 0 ? k.last : k.last - k.first);
+      r.bulk("keystep"), r.integer(k.step);
+      r.bulk("limit"), r.integer(0);
+    }
+  }
+  r.array(0);  // subcommands
+}
+
+}  // namespace
+
 void cmd_command(Cmd& c) {
-  if (c.args.size() == 1) return c.r.array(0);
+  const auto& table = command_table();
+  if (c.args.size() == 1) {
+    c.r.array(table.size());
+    for (const auto& [name, spec] : table) command_entry(c.r, name, spec);
+    return;
+  }
   std::string sub = to_lower(c.args[1]);
-  if (sub == "count") return c.r.integer(static_cast<int64_t>(command_table().size()));
+  if (sub == "count") return c.r.integer(static_cast<int64_t>(table.size()));
   if (sub == "docs") return c.r.map(0);
   if (sub == "list") {
-    c.r.array(command_table().size());
-    for (const auto& [name, spec] : command_table()) c.r.bulk(name);
+    c.r.array(table.size());
+    for (const auto& [name, spec] : table) c.r.bulk(name);
     return;
   }
   if (sub == "info") {
+    if (c.args.size() == 2) {  // all of them, as COMMAND
+      c.r.array(table.size());
+      for (const auto& [name, spec] : table) command_entry(c.r, name, spec);
+      return;
+    }
     c.r.array(c.args.size() - 2);
-    for (size_t i = 2; i < c.args.size(); ++i) c.r.null_array();
+    for (size_t i = 2; i < c.args.size(); ++i) {
+      std::string name = to_lower(c.args[i]);
+      if (auto it = table.find(name); it != table.end()) command_entry(c.r, name, it->second);
+      else c.r.null_array();
+    }
+    return;
+  }
+  if (sub == "getkeys" && c.args.size() >= 3) {
+    std::string name = to_lower(c.args[2]);
+    auto it = table.find(name);
+    if (it == table.end()) return c.r.error("ERR Invalid command specified");
+    const CommandSpec& spec = it->second;
+    Args args = c.args.subspan(2);
+    int argc = static_cast<int>(args.size());
+    if (spec.arity > 0 ? argc != spec.arity : argc < -spec.arity) {
+      return c.r.error("ERR Invalid number of arguments specified for command");
+    }
+    std::vector<std::string_view> keys;
+    for_each_key(spec, args, [&](std::string_view key, uint8_t) {
+      keys.push_back(key);
+      return true;
+    });
+    // A command without key arguments is an error; one whose keys move
+    // (EVAL ... 0) may have none.
+    if (keys.empty() && spec.keys[0].first == 0) return c.r.error("ERR The command has no key arguments");
+    c.r.array(keys.size());
+    for (auto k : keys) c.r.bulk(k);
     return;
   }
   c.r.error(std::format("ERR unknown subcommand '{}'. Try COMMAND HELP.", c.args[1]));
@@ -352,6 +479,7 @@ void cmd_config(Cmd& c) {
     return;
   }
   if (sub == "resetstat" && c.args.size() == 2) {
+    c.ctx.stats.reset();
     c.ctx.db.reset_latency();
     if (c.ctx.read_pool) c.ctx.read_pool->reset_latency();
     return c.r.ok();
@@ -382,8 +510,17 @@ void cmd_config(Cmd& c) {
 }
 
 void cmd_info(Cmd& c) {
-  std::string section = c.args.size() > 1 ? to_lower(c.args[1]) : "";
-  c.r.bulk(build_info(c.ctx, section));
+  if (c.args.size() <= 2) return c.r.bulk(build_info(c.ctx, c.args.size() > 1 ? to_lower(c.args[1]) : ""));
+  // INFO section [section ...] (Redis 7): each one once, in the order asked.
+  std::vector<std::string> seen;
+  std::string out;
+  for (size_t i = 1; i < c.args.size(); ++i) {
+    std::string section = to_lower(c.args[i]);
+    if (std::ranges::find(seen, section) != seen.end()) continue;
+    out += build_info(c.ctx, section);
+    seen.push_back(std::move(section));
+  }
+  c.r.bulk(out);
 }
 
 void cmd_time(Cmd& c) {
@@ -1041,8 +1178,8 @@ const std::unordered_map<std::string, CommandSpec>& command_table() {
 }  // namespace
 
 std::string client_info(const ClientState& cl) {
-  return std::format("id={} addr={} name={} db=0 resp={} user={} tls={} lib-name={} lib-ver={}", cl.id, cl.addr,
-                     cl.name, cl.proto, cl.user ? cl.user->name : "default", cl.tls ? "yes" : "no", cl.lib_name,
+  return std::format("id={} addr={} laddr={} name={} db=0 resp={} user={} tls={} lib-name={} lib-ver={}", cl.id,
+                     cl.addr, cl.laddr, cl.name, cl.proto, cl.user ? cl.user->name : "default", cl.tls ? "yes" : "no", cl.lib_name,
                      cl.lib_ver);
 }
 
@@ -1258,6 +1395,7 @@ void publish_identity(ClientState& client) {
   ClientEntry& e = *client.entry;
   std::lock_guard lock(e.mu);
   e.addr = client.addr;
+  e.laddr = client.laddr;
   e.name = client.name;
   e.user = client.user ? client.user->name : "default";
   e.lib_name = client.lib_name;
@@ -1366,10 +1504,10 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
   if (want("server")) {
     out += std::format(
         "# Server\r\ndatadam_version:{}\r\ndatadam_git_sha1:{}\r\nredis_version:{}\r\nredis_mode:standalone\r\n"
-        "process_id:{}\r\nrun_id:{}\r\n"
+        "arch_bits:{}\r\nprocess_id:{}\r\nrun_id:{}\r\n"
         "tcp_port:{}\r\nmemcache_port:{}\r\nio_threads:{}\r\nuptime_in_seconds:{}\r\nuptime_in_days:{}\r\n\r\n",
-        DATADAM_VERSION, git_commit(), kRedisCompatVersion, DATADAM_GETPID(), ctx.run_id, ctx.config.port, ctx.config.memcache_port,
-        ctx.config.io_thread_count(), uptime_s, uptime_s / 86400);
+        DATADAM_VERSION, git_commit(), kRedisCompatVersion, sizeof(void*) * 8, DATADAM_GETPID(), ctx.run_id,
+        ctx.config.port, ctx.config.memcache_port, ctx.config.io_thread_count(), uptime_s, uptime_s / 86400);
   }
   if (want("clients")) {
     size_t blocked = 0, pubsub = 0;
@@ -1483,6 +1621,8 @@ std::string build_info(ServerContext& ctx, std::string_view section) {
     out += "\r\n";
   }
   if (want("replication")) out += ctx.repl.info(ctx.db.storage(), ctx.settings().replica_priority);
+  // Clients and tools (redis-py's tests, exporters) read it to tell a cluster.
+  if (want("cluster")) out += "# Cluster\r\ncluster_enabled:0\r\n\r\n";
   if (want("keyspace")) {
     out += std::format("# Keyspace\r\ndb0:keys={},expires=0,avg_ttl=0\r\n", ctx.db.approx_size());
   }

@@ -104,6 +104,18 @@ TEST_F(AclTest, CommandsAndKeyPrefixes) {
   EXPECT_TRUE(noperm(run(alice, {"PING"})));  // @connection is not granted either, as in Redis
 }
 
+TEST_F(AclTest, AnyUserMayLogInAgain) {
+  // AUTH and HELLO are no-auth commands: Redis does not check them against the
+  // user's permissions, so a user without them can still switch users.
+  ASSERT_EQ(run({"ACL", "SETUSER", "dave", "on", ">pw", "+acl"}), "+OK\r\n");
+  ASSERT_EQ(run({"ACL", "SETUSER", "alice", "on", ">pw2", "~*", "+@all"}), "+OK\r\n");
+  ClientState dave = login("dave", "pw");
+  EXPECT_TRUE(run(dave, {"AUTH", "dave", "wrong"}).starts_with("-WRONGPASS"));
+  EXPECT_EQ(run(dave, {"HELLO", "2", "AUTH", "dave", "pw"}).substr(0, 1), "*");
+  EXPECT_EQ(run(dave, {"AUTH", "alice", "pw2"}), "+OK\r\n");
+  EXPECT_EQ(run(dave, {"ACL", "WHOAMI"}), "$5\r\nalice\r\n");
+}
+
 TEST_F(AclTest, ReadOnlyAndWriteOnlyPatterns) {
   run({"SET", "ro:1", "v"});
   ASSERT_EQ(run({"ACL", "SETUSER", "bob", "on", ">pw", "%R~ro:*", "%W~wo:*", "+@all"}), "+OK\r\n");
@@ -377,4 +389,23 @@ TEST_F(AclTest, AclLogRecordsRefusalsAndFailedLogins) {
   EXPECT_EQ(run({"CONFIG", "SET", "acllog-max-len", "0"}), "+OK\r\n");
   run(c, {"SET", "k", "v"});
   EXPECT_EQ(run({"ACL", "LOG"}), "*0\r\n");
+}
+
+TEST_F(AclTest, RulesMayNameRedisCommandsDatadamLacks) {
+  // Rule sets written for Redis (+cluster, -debug) load; they cover nothing.
+  EXPECT_EQ(run({"ACL", "SETUSER", "frank", "on", "nopass", "+get", "+cluster", "+cluster|info", "-debug"}), "+OK\r\n");
+  EXPECT_NE(run({"ACL", "GETUSER", "frank"}).find("+cluster"), std::string::npos);
+  EXPECT_TRUE(run({"ACL", "SETUSER", "frank", "+nosuchcommand"}).starts_with("-ERR"));
+  EXPECT_TRUE(run({"ACL", "SETUSER", "frank", "+get|nosuch"}).starts_with("-ERR"));
+}
+
+TEST_F(AclTest, UnknownSubcommandsAreUnknownNotDenied) {
+  // As in Redis: the command refuses a subcommand it does not have before any
+  // permission check, and the ACL log does not record it.
+  ASSERT_EQ(run({"ACL", "SETUSER", "gina", "on", ">pw", "+get"}), "+OK\r\n");
+  ClientState gina = login("gina", "pw");
+  ASSERT_EQ(run({"ACL", "LOG", "RESET"}), "+OK\r\n");
+  EXPECT_TRUE(run(gina, {"CLIENT", "MAINT_NOTIFICATIONS", "on"}).starts_with("-ERR unknown subcommand"));
+  EXPECT_TRUE(noperm(run(gina, {"CLIENT", "LIST"})));  // a known one is still checked
+  EXPECT_EQ(run({"ACL", "LOG"}).substr(0, 4), "*1\r\n");
 }

@@ -72,6 +72,13 @@ std::string peer_address(const tcp::socket& socket) {
   return std::format("{}:{}", ep.address().to_string(), ep.port());
 }
 
+std::string local_address(const tcp::socket& socket) {
+  asio::error_code ec;
+  auto ep = socket.local_endpoint(ec);
+  if (ec) return "?";
+  return std::format("{}:{}", ep.address().to_string(), ep.port());
+}
+
 std::string peer_ip(const tcp::socket& socket) {
   asio::error_code ec;
   auto ep = socket.remote_endpoint(ec);
@@ -462,6 +469,7 @@ asio::awaitable<void> Server::redis_session(tcp::socket socket) {
   client.id = ctx_.stats.next_client_id.fetch_add(1, std::memory_order_relaxed) + 1;
   start_session(ctx_, client);
   client.addr = peer_address(socket);
+  client.laddr = local_address(socket);
   if (too_many_clients()) {
     std::string reply = std::format("-{}\r\n", kMaxClientsError);
     co_await asio::async_write(socket, asio::buffer(reply), kUseAwaitable);
@@ -484,6 +492,7 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
   std::shared_ptr<TlsContext> tls = ctx_.tls();  // kept alive for the whole connection
   if (!tls) co_return;
   std::string addr = peer_address(socket);
+  std::string laddr = local_address(socket);
   std::string ip = peer_ip(socket);
   asio::ssl::stream<tcp::socket> stream(std::move(socket), tls->ssl());
   asio::steady_timer timer(co_await asio::this_coro::executor, kTlsHandshakeTimeout);
@@ -517,6 +526,7 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
   ClientState client;
   client.id = ctx_.stats.next_client_id.fetch_add(1, std::memory_order_relaxed) + 1;
   client.addr = addr;
+  client.laddr = laddr;
   client.tls = true;
   start_session(ctx_, client);
   // tls-auth-clients-user cn: a verified certificate logs in as the user of its CN.

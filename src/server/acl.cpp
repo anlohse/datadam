@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <format>
+#include <unordered_map>
+#include <vector>
 
 #include "server/command.h"
+#include "server/redis_command_names.h"
 #include "util/clock.h"
 #include "util/sha256.h"
 #include "util/strings.h"
@@ -21,6 +24,22 @@ bool is_hex_hash(std::string_view s) {
 // Commands whose first argument is a subcommand (for +cmd|sub rules).
 bool has_subcommands(std::string_view name) {
   return name == "config" || name == "client" || name == "acl" || name == "cache" || name == "command";
+}
+
+// The subcommands datadam implements, for each command that has them (keep in
+// step with the handlers: cmd_client, cmd_config, cmd_acl, cmd_cache,
+// cmd_command). Another one is refused by its command as unknown before any
+// permission is checked, as in Redis: not an ACL denial, nor an ACL LOG entry.
+bool known_subcommand(std::string_view name, std::string_view sub) {
+  static const std::unordered_map<std::string_view, std::vector<std::string_view>> known = {
+      {"client", {"getname", "id", "info", "kill", "list", "no-evict", "no-touch", "reply", "setinfo", "setname"}},
+      {"config", {"get", "resetstat", "rewrite", "set"}},
+      {"command", {"count", "docs", "getkeys", "info", "list"}},
+      {"acl", {"cat", "deluser", "getuser", "list", "log", "setuser", "users", "whoami"}},
+      {"cache", {"classes", "clear", "stats"}},
+  };
+  auto it = known.find(name);
+  return it == known.end() || std::ranges::find(it->second, sub) != it->second.end();
 }
 
 }  // namespace
@@ -160,23 +179,24 @@ std::string AclUser::apply(std::string_view rule) {
       }
     } else if (size_t bar = what.find('|'); bar != std::string::npos) {
       std::string parent = what.substr(0, bar);
-      if (!find_command(parent) || !has_subcommands(parent) || bar + 1 == what.size()) {
+      if (find_command(parent) && has_subcommands(parent) && bar + 1 < what.size()) {
+        if (allow) {
+          sub_denied.erase(what);
+          sub_allowed.insert(what);
+        } else {
+          sub_allowed.erase(what);
+          sub_denied.insert(what);
+        }
+      } else if (!is_redis_command_name(what)) {
         return "Unknown command or category name in ACL";
-      }
-      if (allow) {
-        sub_denied.erase(what);
-        sub_allowed.insert(what);
-      } else {
-        sub_allowed.erase(what);
-        sub_denied.insert(what);
-      }
-    } else {
-      const CommandSpec* spec = find_command(what);
-      if (!spec) return "Unknown command or category name in ACL";
+      }  // else a Redis subcommand datadam does not have: kept, covering nothing
+    } else if (const CommandSpec* spec = find_command(what)) {
       commands.set(spec->id, allow);
       std::erase_if(sub_allowed, [&](const std::string& s) { return s.starts_with(what + "|"); });
       std::erase_if(sub_denied, [&](const std::string& s) { return s.starts_with(what + "|"); });
-    }
+    } else if (!is_redis_command_name(what)) {
+      return "Unknown command or category name in ACL";
+    }  // else a Redis command datadam does not have (+cluster): kept, covering nothing
     command_rules.push_back(std::string(1, rule[0]) + what);
   } else {
     return "Syntax error";
@@ -266,8 +286,11 @@ AclDenial acl_check(const AclUser& user, std::string_view name, const CommandSpe
                     std::span<const std::string_view> args) {
   if (user.unrestricted) return {};
   std::string sub = has_subcommands(name) && args.size() > 1 ? to_lower(args[1]) : std::string();
-  // Anyone logged in may ask who they are and what the categories are.
-  bool self_service = name == "acl" && (sub == "whoami" || sub == "cat");
+  // Anyone logged in may ask who they are and what the categories are, and log
+  // in again as someone else: AUTH and HELLO are no-auth commands, which Redis
+  // never checks against the user's command permissions.
+  bool self_service = (name == "acl" && (sub == "whoami" || sub == "cat")) || name == "auth" || name == "hello";
+  if (!sub.empty() && !known_subcommand(name, sub)) return {};  // the command refuses it as unknown
   if (!self_service && !user.may_run(name, spec, sub)) {
     std::string object = sub.empty() ? std::string(name) : std::format("{}|{}", name, sub);
     std::string message = std::format("NOPERM User {} has no permissions to run the '{}' command", user.name, object);
