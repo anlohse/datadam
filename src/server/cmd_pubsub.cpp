@@ -128,7 +128,8 @@ void cmd_pubsub(Cmd& c) {
     c.r.array(names.size());
     for (const auto& n : names) c.r.bulk(n);
   } else if (sub == "numsub") {
-    c.r.map(c.args.size() - 2);
+    // A flat array of channel, count pairs, in RESP3 too (as Redis replies).
+    c.r.array(2 * (c.args.size() - 2));
     for (size_t i = 2; i < c.args.size(); ++i) {
       c.r.bulk(c.args[i]);
       c.r.integer(static_cast<int64_t>(c.ctx.pubsub.subscribers(c.args[i], shard)));

@@ -527,3 +527,66 @@ TEST_F(AdminTest, ReadPoolBatchesTheBacklog) {
   EXPECT_EQ(pool.batches(), 2u);
   EXPECT_EQ(storage_->multi_get_latency().count(), multigets + 1);
 }
+
+TEST_F(AdminTest, CommandDescribesCommandsAndTheirKeys) {
+  // What clients (redis-py's CommandsParser, cluster clients) read: name,
+  // arity, flags, legacy key positions, categories, tips, key specs, subcommands.
+  Value get = run({"COMMAND", "INFO", "get", "nosuchcommand"});
+  ASSERT_TRUE(get.array);
+  ASSERT_EQ(get.items.size(), 2u);
+  ASSERT_EQ(get.items[0].items.size(), 10u);
+  EXPECT_EQ(get.items[0].items[0].text, "get");
+  EXPECT_EQ(get.items[0].items[1].text, "2");
+  EXPECT_EQ(get.items[0].items[2].items[0].text, "readonly");
+  EXPECT_EQ(get.items[0].items[3].text, "1");  // first key
+  EXPECT_EQ(get.items[0].items[4].text, "1");  // last key
+  EXPECT_EQ(get.items[0].items[5].text, "1");  // step
+  EXPECT_EQ(get.items[0].items[8].items.size(), 1u);  // one key spec
+  EXPECT_TRUE(get.items[1].array && get.items[1].items.empty() || get.items[1].text.empty());  // unknown: nil
+
+  Value all = run({"COMMAND"});
+  ASSERT_TRUE(all.array);
+  EXPECT_EQ(std::to_string(all.items.size()), run({"COMMAND", "COUNT"}).text);
+
+  // Keys a client cannot find from the positions alone: COMMAND GETKEYS.
+  Value eval = run({"COMMAND", "INFO", "eval"});
+  bool movable = false;
+  for (const auto& f : eval.items[0].items[2].items) movable = movable || f.text == "movablekeys";
+  EXPECT_TRUE(movable);
+  Value keys = run({"COMMAND", "GETKEYS", "EVAL", "return 1", "2", "k1", "k2", "arg"});
+  ASSERT_EQ(keys.items.size(), 2u);
+  EXPECT_EQ(keys.items[0].text, "k1");
+  EXPECT_EQ(keys.items[1].text, "k2");
+  keys = run({"COMMAND", "GETKEYS", "MSET", "a", "1", "b", "2"});
+  ASSERT_EQ(keys.items.size(), 2u);
+  EXPECT_EQ(keys.items[1].text, "b");
+  keys = run({"COMMAND", "GETKEYS", "EVAL", "return 1", "0"});
+  EXPECT_TRUE(keys.array && keys.items.empty());  // keys that move: none is no error
+  EXPECT_TRUE(run({"COMMAND", "GETKEYS", "PING"}).error);
+  EXPECT_TRUE(run({"COMMAND", "GETKEYS", "GET"}).error);  // too few arguments
+  EXPECT_TRUE(run({"COMMAND", "GETKEYS", "NOSUCH", "x"}).error);
+}
+
+TEST_F(AdminTest, InfoSectionsResetstatAndClientAddresses) {
+  // INFO with several sections: each of them.
+  std::string info = run({"INFO", "clients", "server", "clients"}).text;
+  EXPECT_NE(info.find("redis_version:"), std::string::npos);
+  EXPECT_NE(info.find("connected_clients:"), std::string::npos);
+  EXPECT_EQ(info.find("connected_clients:"), info.rfind("connected_clients:"));  // once
+  EXPECT_NE(run({"INFO"}).text.find("cluster_enabled:0"), std::string::npos);
+  EXPECT_NE(run({"INFO", "server"}).text.find("arch_bits:"), std::string::npos);
+
+  // CONFIG RESETSTAT zeroes the command counters.
+  for (int i = 0; i < 5; ++i) run({"PING"});
+  auto processed = [&] {
+    std::string s = run({"INFO", "stats"}).text;
+    size_t at = s.find("total_commands_processed:") + 25;
+    return std::stoll(s.substr(at, s.find('\r', at) - at));
+  };
+  EXPECT_GE(processed(), 5);
+  EXPECT_EQ(run({"CONFIG", "RESETSTAT"}).text, "OK");
+  EXPECT_LT(processed(), 3);
+
+  // CLIENT INFO names the local address too (empty off a server).
+  EXPECT_NE(run({"CLIENT", "INFO"}).text.find(" laddr="), std::string::npos);
+}

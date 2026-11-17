@@ -87,17 +87,17 @@ Errors that any command can return:
 | | `CLIENT GETNAME` | Nil when no name was set. |
 | | `CLIENT ID` | |
 | | `CLIENT SETINFO LIB-NAME\|LIB-VER value` | |
-| | `CLIENT INFO` | The calling connection: `id addr name db resp user tls lib-name lib-ver`. |
-| | `CLIENT LIST [TYPE normal\|pubsub\|replica\|master] [ID id ...]` | Every Redis connection, one line each: `id addr name age idle flags db sub psub ssub multi cmd user resp lib-name lib-ver tls`. |
+| | `CLIENT INFO` | The calling connection: `id addr laddr name db resp user tls lib-name lib-ver`. |
+| | `CLIENT LIST [TYPE normal\|pubsub\|replica\|master] [ID id ...]` | Every Redis connection, one line each: `id addr laddr name age idle flags db sub psub ssub multi cmd user resp lib-name lib-ver tls`. |
 | | `CLIENT KILL ip:port` | Closes that connection; `OK` or `ERR No such client`. |
-| | `CLIENT KILL [ID id] [ADDR ip:port] [USER name] [TYPE type] [MAXAGE seconds] [SKIPME yes\|no]` | Closes every connection that matches all the filters (not this one, unless `SKIPME no`); replies how many. |
+| | `CLIENT KILL [ID id] [ADDR ip:port] [LADDR ip:port] [USER name] [TYPE type] [MAXAGE seconds] [SKIPME yes\|no]` | Closes every connection that matches all the filters (not this one, unless `SKIPME no`); replies how many. |
 | | `CLIENT NO-EVICT\|NO-TOUCH\|REPLY arg` | Accepted for client-library compatibility; reply `OK` and have no effect (`CLIENT REPLY OFF` does not silence replies). |
-| COMMAND | `COMMAND [COUNT \| LIST \| DOCS \| INFO name ...]` | `COUNT` and `LIST` are exact. `COMMAND` alone returns an empty array, `DOCS` an empty map and `INFO` a nil per name: datadam has no command documentation table. |
+| COMMAND | `COMMAND [COUNT \| LIST \| DOCS \| INFO [name ...] \| GETKEYS command [arg ...]]` | `COMMAND` and `COMMAND INFO` describe each command as Redis 7 does: name, arity, flags (`readonly`, `write`, `fast`, `admin`, `pubsub`, `blocking`, `no_auth`, `movablekeys`), the legacy first/last/step key positions, ACL categories, tips (none) and key specifications; `INFO` without names describes every command, an unknown name gets a nil. `GETKEYS` returns the key arguments of a command line (empty when its keys move and there are none; an error for a command without keys). `COUNT` and `LIST` are exact; `DOCS` returns an empty map. |
 | CONFIG | `CONFIG GET pattern [pattern ...]` | Glob patterns, case-insensitive. Besides datadam's own options it answers `databases` (1), `save` (empty), `appendonly` (`no`) and `maxmemory` (the value of `cache-max-memory`). |
 | | `CONFIG SET parameter value [parameter value ...]` | All pairs are validated first; either all apply or none. Only some options can change at run time; see [Configuration](configuration.md). Others reply `can't set immutable config`. |
 | | `CONFIG REWRITE` | Writes the current settings and ACL users into the config file the server started with. |
-| | `CONFIG RESETSTAT` | Clears the `INFO latency` histograms. Counters in `INFO stats` are not reset. |
-| INFO | `INFO [section]` | Sections: `server`, `clients`, `stats`, `cache` (alias `memory`), `persistence`, `latency`, `replication`, `keyspace`; none, `all`, `everything` or `default` gives all. Only the first argument is used. See [Operations](operations.md). |
+| | `CONFIG RESETSTAT` | Resets the counters Redis resets: `INFO stats` (commands, connections, network bytes, errors, ACL denials), `commandstats`, `errorstats`, and the `INFO latency` histograms. |
+| INFO | `INFO [section ...]` | Sections: `server`, `clients`, `stats`, `cache` (alias `memory`), `persistence`, `latency`, `replication`, `cluster` (`cluster_enabled:0`), `keyspace`; none, `all`, `everything` or `default` gives all. Several sections give each once. See [Operations](operations.md). |
 | TIME | `TIME` | Unix seconds and microseconds. |
 | DBSIZE | `DBSIZE` | **An estimate** (RocksDB's `rocksdb.estimate-num-keys`); it can count expired and deleted keys that compaction has not removed yet. `INFO keyspace` shows the same number, with `expires=0,avg_ttl=0`. |
 | FLUSHDB | `FLUSHDB [ASYNC\|SYNC]` | Same as `FLUSHALL`. |

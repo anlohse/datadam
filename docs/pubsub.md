@@ -26,7 +26,7 @@ connected to the same server.
 | PUBLISH | `PUBLISH channel message` | How many subscribers received it |
 | SPUBLISH | `SPUBLISH shardchannel message` | How many shard subscribers received it |
 | PUBSUB CHANNELS | `PUBSUB CHANNELS [pattern]` | Channels with at least one subscriber |
-| PUBSUB NUMSUB | `PUBSUB NUMSUB [channel ...]` | `channel, count` pairs (a map in RESP3) |
+| PUBSUB NUMSUB | `PUBSUB NUMSUB [channel ...]` | `channel, count` pairs, a flat array (RESP3 too, as in Redis) |
 | PUBSUB NUMPAT | `PUBSUB NUMPAT` | Patterns with at least one subscriber |
 | PUBSUB SHARDCHANNELS | `PUBSUB SHARDCHANNELS [pattern]` | Shard channels with subscribers |
 | PUBSUB SHARDNUMSUB | `PUBSUB SHARDNUMSUB [shardchannel ...]` | `channel, count` pairs |

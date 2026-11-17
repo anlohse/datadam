@@ -147,6 +147,13 @@ jobs:
       - name: redis-cli suite against the image
         run: bash tests/docker_redis_cli.sh datadam:release
 
+      # Client libraries' own suites (docs/clients.md): beyond the skip lists, nothing may fail.
+      - name: Client libraries' suites against the image
+        run: |
+          PROTOCOL=3 bash tests/clients/redis-py.sh datadam:release
+          PROTOCOL=2 bash tests/clients/redis-py.sh datadam:release
+          bash tests/clients/redlock.sh datadam:release
+
       # ---- publish: everything above passed, and this is a version tag
 
       - name: Image tags

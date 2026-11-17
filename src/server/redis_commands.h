@@ -63,6 +63,26 @@ struct ServerStats {
   std::atomic<uint64_t> tls_connections{0};
   std::atomic<uint64_t> tls_handshake_failures{0};
 
+  // CONFIG RESETSTAT: the counters Redis resets (INFO stats, commandstats,
+  // errorstats). Each thread bumps its own counters without a lock, so one it
+  // is bumping at that instant may keep its old value.
+  void reset() {
+    total_connections = 0;
+    rejected_connections = 0;
+    auth_failures = 0;
+    acl_denied = 0;
+    tls_handshake_failures = 0;
+    threads.for_each_mutable([](ThreadStats& t) {
+      t.commands = 0;
+      t.error_replies = 0;
+      t.net_input_bytes = 0;
+      t.net_output_bytes = 0;
+      for (auto& c : t.by_command) c.calls = 0, c.nsec = 0, c.failed = 0, c.rejected = 0;
+      std::lock_guard lock(t.errors_mu);
+      t.errors.clear();
+    });
+  }
+
   // Sums over the threads.
   uint64_t total_commands() const { return sum(&ThreadStats::commands); }
   uint64_t total_error_replies() const { return sum(&ThreadStats::error_replies); }
@@ -159,6 +179,7 @@ struct ClientState {
   std::string lib_name;
   std::string lib_ver;
   std::string addr;
+  std::string laddr;  // the local end: this server's address and port
   bool authenticated = true;
   // Who is logged in (null: nobody yet, or a test client with no ACL) and
   // the ACL version it was read at.

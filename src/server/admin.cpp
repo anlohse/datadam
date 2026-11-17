@@ -224,9 +224,9 @@ std::string ClientEntry::describe() const {
   const std::string* cmd = last_cmd.load();
   std::lock_guard lock(mu);
   return std::format(
-      "id={} addr={} name={} age={} idle={} flags={} db=0 sub={} psub={} ssub={} multi=-1 cmd={} user={} resp={} "
+      "id={} addr={} laddr={} name={} age={} idle={} flags={} db=0 sub={} psub={} ssub={} multi=-1 cmd={} user={} resp={} "
       "lib-name={} lib-ver={} tls={}",
-      id, addr, name, (now - created_ms) / 1000, (now - last_ms.load()) / 1000, flags, subscriptions.load(),
+      id, addr, laddr, name, (now - created_ms) / 1000, (now - last_ms.load()) / 1000, flags, subscriptions.load(),
       patterns.load(), shard_subscriptions.load(), cmd ? *cmd : std::string("NULL"), user, proto, lib_name, lib_ver,
       tls ? "yes" : "no");
 }

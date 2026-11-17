@@ -1,0 +1,123 @@
+# Client libraries' own test suites against datadam (tests/clients/): what
+# breaks for a real application, beyond our tests. Not part of every pull
+# request: they test features datadam may not have yet, and change when the
+# libraries do. They run
+#   - every night, against the image of main (:edge);
+#   - by hand (Actions > Clients > Run workflow), against any image;
+#   - on a pull request labelled "clients", against an image built from it;
+#   - before a release (release.yml runs the same scripts).
+# Failures the skip lists (tests/clients/*.skip) do not explain are regressions.
+# The actions are pinned to commits, as in release.yml.
+name: Clients
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image to test
+        default: ghcr.io/anlohse/datadam:edge
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clients-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Image
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'clients')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      built: ${{ steps.ref.outputs.built }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+        if: github.event_name == 'pull_request'
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        if: github.event_name == 'pull_request'
+
+      - name: Build the pull request's image
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          build-args: |
+            BUILD_JOBS=4
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=linux-deps
+          tags: datadam:pr
+          outputs: type=docker,dest=${{ runner.temp }}/datadam.tar
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: github.event_name == 'pull_request'
+        with:
+          name: datadam-image
+          path: ${{ runner.temp }}/datadam.tar
+          retention-days: 1
+
+      - name: Image to test
+        id: ref
+        env:
+          INPUT_IMAGE: ${{ inputs.image }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "ref=datadam:pr" >> "$GITHUB_OUTPUT"; echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${INPUT_IMAGE:-ghcr.io/anlohse/datadam:edge}" >> "$GITHUB_OUTPUT"; echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  suite:
+    name: ${{ matrix.suite }}
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: redis-py (RESP2)
+            script: redis-py.sh
+            protocol: "2"
+          - suite: redis-py (RESP3)
+            script: redis-py.sh
+            protocol: "3"
+          - suite: node-redlock
+            script: redlock.sh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        if: needs.image.outputs.built == 'true'
+        with:
+          name: datadam-image
+          path: ${{ runner.temp }}
+
+      - name: Load the image
+        if: needs.image.outputs.built == 'true'
+        run: docker load -i "$RUNNER_TEMP/datadam.tar"
+
+      - name: Run the suite
+        env:
+          PROTOCOL: ${{ matrix.protocol }}
+          OUT: ${{ runner.temp }}/reports
+        run: bash "tests/clients/${{ matrix.script }}" "${{ needs.image.outputs.ref }}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always() && matrix.protocol != ''
+        with:
+          name: junit-redis-py-resp${{ matrix.protocol }}
+          path: ${{ runner.temp }}/reports/
+          retention-days: 14
+          if-no-files-found: ignore
