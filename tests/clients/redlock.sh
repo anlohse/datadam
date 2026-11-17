@@ -19,7 +19,9 @@ cleanup() {
   [ -n "${KEEP:-}" ] && return
   dk rm -f "${NODES[@]}" dd-redlock-runner >/dev/null 2>&1 || true
   dk network rm $NET >/dev/null 2>&1 || true
-  rm -rf "$WORK"
+  # The runner wrote as root: remove its files through a container.
+  [ -d "$WORK/node-redlock" ] && dk run --rm -v "$(host_path "$WORK")":/w node:20 rm -rf /w/node-redlock >/dev/null 2>&1 || true
+  rm -rf "$WORK" 2>/dev/null || true
 }
 trap cleanup EXIT
 host_path() { (cd "$1" && (pwd -W 2>/dev/null || pwd)); }
