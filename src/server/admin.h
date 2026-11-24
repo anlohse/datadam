@@ -112,7 +112,7 @@ struct ClientEntry {
   std::atomic<bool> blocked{false}, monitor{false}, pubsub{false}, replica{false};
   // Changed rarely (AUTH, HELLO, CLIENT SETNAME/SETINFO), under mu.
   mutable std::mutex mu;
-  std::string addr, name, user, lib_name, lib_ver;
+  std::string addr, laddr, name, user, lib_name, lib_ver;
   int proto = 2;
   bool tls = false;
   // Closes the connection (from any thread).

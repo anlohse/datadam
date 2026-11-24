@@ -47,6 +47,12 @@ class PerThread {
     std::lock_guard lock(mu_);
     for (const auto& [thread, block] : blocks_) f(*block);
   }
+  // Calls f(Block&) for every thread's block: to reset counters.
+  template <class F>
+  void for_each_mutable(F&& f) {
+    std::lock_guard lock(mu_);
+    for (auto& [thread, block] : blocks_) f(*block);
+  }
 
  private:
   struct Slot {

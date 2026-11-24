@@ -207,7 +207,13 @@ script runs is checked again, as the same user, with its own keys, so a script c
 see [Lua scripting](scripting.md#permissions).
 
 Redis categories for features datadam does not have (`@stream`, `@bitmap`, `@hyperloglog`, `@geo`) are
-accepted and contain no commands, so Redis rule sets such as `+@all -@stream` load unchanged.
+accepted and contain no commands, so Redis rule sets such as `+@all -@stream` load unchanged. So are rules
+naming a Redis command or subcommand datadam does not have (`+cluster`, `-debug`, `+cluster|info`): they are
+kept, shown by `ACL GETUSER`, and cover nothing. A name that is no Redis command is refused.
+
+`AUTH` and `HELLO` are never checked against a user's command rules, as in Redis: any logged-in user may log in
+again as another. A subcommand datadam does not have (`CLIENT TRACKING`) is refused by its command as unknown
+before permissions are checked, so it is neither a `NOPERM` reply nor an `ACL LOG` entry.
 
 A category rule applies to the `CLIENT` subcommands listed there on their own: `+@all -@admin` leaves
 `CLIENT SETNAME` and `CLIENT ID` but not `CLIENT KILL`, which reaches other users' connections; `+client`
