@@ -305,7 +305,23 @@ void cmd_client(Cmd& c) {
   if (sub == "info" && c.args.size() == 2) return c.r.bulk(client_info_line(c.client));
   if (sub == "list") return client_list(c);
   if (sub == "kill" && c.args.size() >= 3) return client_kill(c);
-  if ((sub == "no-evict" || sub == "no-touch" || sub == "reply") && c.args.size() == 3) return c.r.ok();
+  if (sub == "reply" && c.args.size() == 3) {
+    // The connection drops the replies (Server::serve_requests): OFF's own
+    // too, SKIP's and the next command's.
+    std::string mode = to_lower(c.args[2]);
+    if (mode == "on") {
+      c.client.reply_off = false;
+      c.client.reply_skip = 0;
+    } else if (mode == "off") {
+      c.client.reply_off = true;
+    } else if (mode == "skip") {
+      c.client.reply_skip = 2;
+    } else {
+      return c.r.error(kSyntax);
+    }
+    return c.r.ok();
+  }
+  if ((sub == "no-evict" || sub == "no-touch") && c.args.size() == 3) return c.r.ok();
   c.r.error(std::format("ERR unknown subcommand '{}'. Try CLIENT HELP.", c.args[1]));
 }
 
@@ -334,7 +350,7 @@ void command_entry(Reply& r, std::string_view name, const CommandSpec& spec) {
   if (cats & kCatPubSub) flags.push_back("pubsub");
   if (cats & kCatFast) flags.push_back("fast");
   if (cats & kCatBlocking) flags.push_back("blocking");
-  if (name == "auth" || name == "hello") flags.push_back("no_auth");
+  if (name == "auth" || name == "hello" || name == "reset") flags.push_back("no_auth");
   if (movable_keys(spec)) flags.push_back("movablekeys");
 
   r.array(10);
@@ -1087,6 +1103,163 @@ void cmd_keys(Cmd& c) {
   for (const auto& k : keys) c.r.bulk(k);
 }
 
+// COPY source destination [DB destination-db] [REPLACE]
+void cmd_copy(Cmd& c) {
+  bool replace = false;
+  for (size_t i = 3; i < c.args.size(); ++i) {
+    std::string opt = to_lower(c.args[i]);
+    if (opt == "replace") {
+      replace = true;
+    } else if (opt == "db" && i + 1 < c.args.size()) {
+      auto db = parse_int64(c.args[++i]);
+      if (!db) return c.r.error(kNotInteger);
+      if (*db != 0) return c.r.error("ERR DB index is out of range");
+    } else {
+      return c.r.error(kSyntax);
+    }
+  }
+  if (c.args[1] == c.args[2]) return c.r.error("ERR source and destination objects are the same");
+  c.r.integer(c.db().copy(c.args[1], c.args[2], replace) == Database::RenameResult::Ok ? 1 : 0);
+}
+
+// RANDOMKEY: for a user who may not read every key, one it may read.
+void cmd_randomkey(Cmd& c) {
+  for (int tries = 0; tries < 100; ++tries) {
+    auto key = c.db().random_key();
+    if (!key) break;
+    if (may_read_key(c, *key)) return c.r.bulk(*key);
+  }
+  c.r.null();
+}
+
+// LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN]: the longest
+// common subsequence of two strings, by dynamic programming as Redis does.
+void cmd_lcs(Cmd& c) {
+  bool len_only = false, idx = false, with_match_len = false;
+  int64_t min_match_len = 0;
+  for (size_t i = 3; i < c.args.size(); ++i) {
+    std::string opt = to_lower(c.args[i]);
+    if (opt == "len") {
+      len_only = true;
+    } else if (opt == "idx") {
+      idx = true;
+    } else if (opt == "withmatchlen") {
+      with_match_len = true;
+    } else if (opt == "minmatchlen" && i + 1 < c.args.size()) {
+      auto v = parse_int64(c.args[++i]);
+      if (!v) return c.r.error(kNotInteger);
+      min_match_len = std::max<int64_t>(*v, 0);
+    } else {
+      return c.r.error(kSyntax);
+    }
+  }
+  if (len_only && idx) {
+    return c.r.error("ERR If you want both the length and indexes, please just use IDX.");
+  }
+  std::string a, b;
+  for (int k = 1; k <= 2; ++k) {
+    auto rec = c.db().get(c.args[static_cast<size_t>(k)]);
+    if (!rec) continue;
+    if (!is_string(*rec)) return c.r.error("ERR The specified keys must contain string values");
+    (k == 1 ? a : b) = std::move(rec->value);
+  }
+  // The table: (len(a)+1) x (len(b)+1) lengths, within proto-max-bulk-len as in Redis.
+  constexpr uint64_t kMaxTableBytes = 512ull << 20;
+  uint64_t rows = a.size() + 1, cols = b.size() + 1;
+  if (rows > kMaxTableBytes / sizeof(uint32_t) / cols) {
+    return c.r.error("ERR Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+  }
+  std::vector<uint32_t> table(rows * cols, 0);
+  auto at = [&](size_t i, size_t j) -> uint32_t& { return table[i * cols + j]; };
+  for (size_t i = 1; i < rows; ++i) {
+    for (size_t j = 1; j < cols; ++j) {
+      at(i, j) = a[i - 1] == b[j - 1] ? at(i - 1, j - 1) + 1 : std::max(at(i - 1, j), at(i, j - 1));
+    }
+  }
+  uint32_t len = at(a.size(), b.size());
+  if (len_only) return c.r.integer(len);
+
+  // Back from the end: the subsequence and, for IDX, its matching ranges.
+  struct Match {
+    size_t a_start, a_end, b_start, b_end;
+  };
+  std::vector<Match> matches;
+  std::string common(len, '\0');
+  size_t i = a.size(), j = b.size(), pos = len;
+  const size_t none = a.size();  // no range open
+  Match cur{none, 0, 0, 0};
+  while (i > 0 && j > 0) {
+    bool emit = false;
+    if (a[i - 1] == b[j - 1]) {
+      common[--pos] = a[i - 1];
+      if (cur.a_start == none) {
+        cur = {i - 1, i - 1, j - 1, j - 1};
+      } else if (cur.a_start == i && cur.b_start == j) {
+        --cur.a_start;  // the range grows backwards
+        --cur.b_start;
+      } else {
+        emit = true;
+      }
+      if (cur.a_start == 0 || cur.b_start == 0) emit = true;
+      --i;
+      --j;
+    } else {
+      if (at(i - 1, j) > at(i, j - 1)) --i;
+      else --j;
+      if (cur.a_start != none) emit = true;
+    }
+    if (emit) {
+      size_t match_len = cur.a_end - cur.a_start + 1;
+      if (min_match_len == 0 || match_len >= static_cast<uint64_t>(min_match_len)) matches.push_back(cur);
+      cur.a_start = none;
+    }
+  }
+  if (!idx) return c.r.bulk(common);
+  c.r.map(2);
+  c.r.bulk("matches");
+  c.r.array(matches.size());
+  for (const auto& m : matches) {
+    c.r.array(with_match_len ? 3 : 2);
+    c.r.array(2);
+    c.r.integer(static_cast<int64_t>(m.a_start));
+    c.r.integer(static_cast<int64_t>(m.a_end));
+    c.r.array(2);
+    c.r.integer(static_cast<int64_t>(m.b_start));
+    c.r.integer(static_cast<int64_t>(m.b_end));
+    if (with_match_len) c.r.integer(static_cast<int64_t>(m.a_end - m.a_start + 1));
+  }
+  c.r.bulk("len");
+  c.r.integer(len);
+}
+
+// RESET: the connection as it was when it opened. Leaves MULTI, WATCH,
+// subscriptions and MONITOR; RESP2, no name, replies on; logged in again as
+// the default user if it needs no password, otherwise not logged in.
+void cmd_reset(Cmd& c) {
+  ClientState& cl = c.client;
+  reset_transaction(cl);
+  if (cl.subscriber) {
+    c.ctx.pubsub.unsubscribe_all(*cl.subscriber);
+    if (ClientEntry* e = cl.entry.get()) {
+      e->subscriptions = e->patterns = e->shard_subscriptions = 0;
+      e->pubsub = false;
+    }
+  }
+  if (cl.monitor) {
+    c.ctx.monitors.remove(cl.id);
+    cl.monitor = false;
+    if (cl.entry) cl.entry->monitor = false;
+  }
+  cl.reply_off = false;
+  cl.reply_skip = 0;
+  cl.name.clear();
+  cl.proto = 2;
+  c.r.set_proto(2);
+  if (cl.subscriber) cl.subscriber->set_proto(2);
+  start_session(c.ctx, cl);
+  c.r.simple("RESET");
+}
+
 std::unordered_map<std::string, CommandSpec> build_command_table() {
   std::unordered_map<std::string, CommandSpec> table = {
       // connection / server
@@ -1101,6 +1274,7 @@ std::unordered_map<std::string, CommandSpec> build_command_table() {
       {"config", {cmd_config, -2}},
       {"info", {cmd_info, -1}},
       {"time", {cmd_time, 1}},
+      {"reset", {cmd_reset, 1}},
       {"dbsize", {cmd_dbsize, 1}},
       {"flushdb", {cmd_flushall, -1}},
       {"flushall", {cmd_flushall, -1}},
@@ -1120,6 +1294,7 @@ std::unordered_map<std::string, CommandSpec> build_command_table() {
       {"append", {cmd_append, 3}},
       {"strlen", {cmd_strlen, 2}},
       {"getrange", {cmd_getrange, 4}},
+      {"lcs", {cmd_lcs, -3}},
       {"substr", {cmd_getrange, 4}},
       {"setrange", {cmd_setrange, 4}},
       {"incr", {cmd_incr, 2}},
@@ -1143,6 +1318,8 @@ std::unordered_map<std::string, CommandSpec> build_command_table() {
       {"persist", {cmd_persist, 2}},
       {"rename", {cmd_rename, 3}},
       {"renamenx", {cmd_renamenx, 3}},
+      {"copy", {cmd_copy, -3}},
+      {"randomkey", {cmd_randomkey, 1}},
       {"keys", {cmd_keys, 2}},
   };
   for (const auto& list : {hash_commands(), set_commands(), zset_commands(), list_commands(), index_commands(),
@@ -1286,7 +1463,7 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
       return reply.error("ERR the user of this connection was deleted");
     }
   }
-  if (!client.authenticated && name != "auth" && name != "hello" && name != "quit") {
+  if (!client.authenticated && name != "auth" && name != "hello" && name != "quit" && name != "reset") {
     return reply.error("NOAUTH Authentication required.");
   }
   if (it == table.end()) {

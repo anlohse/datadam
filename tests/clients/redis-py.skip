@@ -182,43 +182,6 @@ tests/test_commands.py::TestRedisCommands::test_sort_limited
 tests/test_commands.py::TestRedisCommands::test_sort_ro
 tests/test_commands.py::TestRedisCommands::test_sort_store
 
-# sorted-set operations across keys (ZUNION, ZINTER, ZDIFF...), ZRANDMEMBER, ZRANGESTORE: not implemented
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zdiff[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zdiff[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zdiffstore[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zdiffstore[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_max[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_max[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_min[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_min[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_sum[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_sum[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_with_weight[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zinterstore_with_weight[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_max[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_max[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_min[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_min[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_sum[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_sum[single]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_with_weight[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_zunionstore_with_weight[single]
-tests/test_commands.py::TestRedisCommands::test_zdiff
-tests/test_commands.py::TestRedisCommands::test_zdiffstore
-tests/test_commands.py::TestRedisCommands::test_zinter
-tests/test_commands.py::TestRedisCommands::test_zintercard
-tests/test_commands.py::TestRedisCommands::test_zinterstore_max
-tests/test_commands.py::TestRedisCommands::test_zinterstore_min
-tests/test_commands.py::TestRedisCommands::test_zinterstore_sum
-tests/test_commands.py::TestRedisCommands::test_zinterstore_with_weight
-tests/test_commands.py::TestRedisCommands::test_zrandemember
-tests/test_commands.py::TestRedisCommands::test_zrangestore
-tests/test_commands.py::TestRedisCommands::test_zunion
-tests/test_commands.py::TestRedisCommands::test_zunionstore_max
-tests/test_commands.py::TestRedisCommands::test_zunionstore_min
-tests/test_commands.py::TestRedisCommands::test_zunionstore_sum
-tests/test_commands.py::TestRedisCommands::test_zunionstore_with_weight
-
 # bitmaps (SETBIT, BITCOUNT, BITOP, BITFIELD...): not implemented
 tests/test_asyncio/test_commands.py::TestRedisCommands::test_bitcount[pool]
 tests/test_asyncio/test_commands.py::TestRedisCommands::test_bitcount[single]
@@ -328,16 +291,6 @@ tests/test_asyncio/test_commands.py::TestRedisCommands::test_memory_stats[single
 tests/test_commands.py::TestRedisCommands::test_memory_malloc_stats
 tests/test_commands.py::TestRedisCommands::test_memory_stats
 
-# RANDOMKEY: not implemented
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_randomkey[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_randomkey[single]
-tests/test_commands.py::TestRedisCommands::test_randomkey
-
-# LCS: not implemented
-tests/test_commands.py::TestRedisCommands::test_lcs
-tests/test_commands.py::TestRedisCommands::test_lists_with_byte_keys
-tests/test_commands.py::TestRedisCommands::test_lists_with_memoryview_keys
-
 # LATENCY: not implemented
 tests/test_commands.py::TestRedisCommands::test_latency_history
 tests/test_commands.py::TestRedisCommands::test_latency_latest
@@ -347,15 +300,8 @@ tests/test_commands.py::TestRedisCommands::test_latency_reset
 tests/test_asyncio/test_commands.py::TestRedisCommands::test_module_list[pool]
 tests/test_asyncio/test_commands.py::TestRedisCommands::test_module_list[single]
 
-# COPY: not implemented
-tests/test_commands.py::TestRedisCommands::test_copy
-tests/test_commands.py::TestRedisCommands::test_copy_and_replace
-
 # LOLWUT: not implemented
 tests/test_commands.py::TestRedisCommands::test_lolwut
-
-# RESET: not implemented
-tests/test_commands.py::TestRedisCommands::test_reset
 
 # COMMAND GETKEYSANDFLAGS: not implemented
 tests/test_commands.py::TestRedisCommands::test_command_getkeysandflags
@@ -394,13 +340,5 @@ tests/test_function.py::TestFunction::test_function_dump_restore
 # ACL selectors (Redis 7): not supported
 tests/test_commands.py::TestRedisCommands::test_acl_getuser_setuser
 
-# CLIENT REPLY OFF and SKIP are accepted, but replies are not suppressed
-tests/test_commands.py::TestRedisCommands::test_client_reply
-
 # fewer commands than Redis (COMMAND LIST)
 tests/test_commands.py::TestRedisCommands::test_command_list
-
-# DBSIZE is RocksDB's estimate (docs/commands.md): keys deleted by FLUSHDB stay counted until compaction
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_dbsize[pool]
-tests/test_asyncio/test_commands.py::TestRedisCommands::test_dbsize[single]
-tests/test_commands.py::TestRedisCommands::test_dbsize

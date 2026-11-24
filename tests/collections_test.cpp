@@ -179,6 +179,28 @@ TEST_F(CollectionsTest, RenameMovesElements) {
   EXPECT_EQ(data_entries(), 4u);  // two entries per zset member; a's and the old set's are gone
 }
 
+TEST_F(CollectionsTest, CopyGivesTheCopyElementsOfItsOwn) {
+  run({"ZADD", "a", "1", "x", "2", "y"});
+  run({"SADD", "b", "old"});
+  EXPECT_EQ(run({"COPY", "a", "b"}), integer(0));  // b exists
+  EXPECT_EQ(run({"COPY", "a", "b", "REPLACE"}), integer(1));
+  EXPECT_EQ(run({"ZRANGE", "b", "0", "-1", "WITHSCORES"}), array({bulk("x"), bulk("1"), bulk("y"), bulk("2")}));
+  EXPECT_NE(version_of("a"), version_of("b"));
+  EXPECT_EQ(run({"ZADD", "b", "3", "z"}), integer(1));
+  EXPECT_EQ(run({"ZCARD", "a"}), integer(2));  // the source is apart
+  EXPECT_EQ(data_entries(), 4u + 6u);         // a's, b's; the old set's are gone
+}
+
+TEST_F(CollectionsTest, DbsizeCountsFromZeroAfterFlushall) {
+  for (int i = 0; i < 100; ++i) run({"SET", "k" + std::to_string(i), "v"});
+  run({"HSET", "h", "f", "v"});
+  EXPECT_EQ(run({"FLUSHALL"}), std::string("+OK") + "\r\n");
+  EXPECT_EQ(run({"DBSIZE"}), integer(0));
+  run({"SET", "a", "1"});
+  run({"SET", "b", "2"});
+  EXPECT_EQ(run({"DBSIZE"}), integer(2));
+}
+
 TEST_F(CollectionsTest, PipelineBatchSeesItsOwnElements) {
   {
     Database::WriteBatchScope batch(*db_);

@@ -67,7 +67,7 @@ The value cannot contain spaces. Setting it replaces every password of the `defa
 
 Once the `default` user needs a password (or is `off`), every new connection must log in:
 
-- Before logging in, only `AUTH`, `HELLO` and `QUIT` are accepted. Any other command replies
+- Before logging in, only `AUTH`, `HELLO`, `QUIT` and `RESET` are accepted. Any other command replies
   `NOAUTH Authentication required.`
 - Before logging in, a request larger than 16 KB is refused with
   `ERR Protocol error: unauthenticated request too big` and the connection is closed, so an anonymous client
@@ -168,10 +168,10 @@ Refusals are counted in `acl_access_denied` (`INFO stats`) and recorded in the [
 
 Some consequences worth knowing:
 
-- `PING`, `ECHO`, `CLIENT`, `HELLO` and `AUTH` are in `@connection`. A user without `+@connection` (or the
-  individual commands) cannot `PING`, and cannot run `AUTH` or `HELLO` again on its connection to switch to
-  another user: open a new connection instead. `AUTH`, `HELLO` and `QUIT` are always accepted on a connection
-  that has not logged in yet.
+- `PING`, `ECHO`, `CLIENT`, `HELLO`, `AUTH` and `RESET` are in `@connection`. A user without `+@connection`
+  (or the individual commands) cannot `PING`. `AUTH`, `HELLO` and `RESET` are never checked against the
+  user's rules (as in Redis, they need no login), so any user may log in again as another; `QUIT` too is
+  always accepted.
 - `ACL WHOAMI` and `ACL CAT` are allowed to every logged-in user.
 - A command that is not in any category a user was granted is denied, as in Redis. `TIME` is only in
   `@fast`.
@@ -195,7 +195,7 @@ membership follow Redis, so rule sets written for Redis mean the same here, with
 | `@blocking` | `BLPOP`, `BRPOP`, `BLMOVE`, `BRPOPLPUSH`, `BLMPOP`, `BZPOPMIN`, `BZPOPMAX`, `BZMPOP`. |
 | `@admin` | `CONFIG`, `ACL`, `SAVE`, `BGSAVE`, `BACKUP`, `SHUTDOWN`, `MONITOR`, `SLOWLOG`, `LASTSAVE`, `FAILOVER`, `CACHE`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.INFO`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`, and `CLIENT KILL`, `CLIENT LIST`, `CLIENT PAUSE`, `CLIENT UNPAUSE`, `CLIENT NO-EVICT` (the rest of `CLIENT` is `@connection` only). |
 | `@dangerous` | `CONFIG`, `ACL`, `INFO`, `KEYS`, `FLUSHDB`, `FLUSHALL`, `SAVE`, `BGSAVE`, `BACKUP`, `SHUTDOWN`, `MONITOR`, `FAILOVER`, `IDX.CREATE`, `IDX.DROP`, `FT.CREATE`, `FT.DROPINDEX`, `CDC.READ`, `REPLICAOF`, `SLAVEOF`, `ROLE`, `REPLCONF`, `REPLSYNC`, and the admin subcommands of `CLIENT` above. |
-| `@connection` | `PING`, `ECHO`, `QUIT`, `SELECT`, `AUTH`, `HELLO`, `CLIENT`, `COMMAND`. |
+| `@connection` | `PING`, `ECHO`, `QUIT`, `SELECT`, `AUTH`, `HELLO`, `RESET`, `CLIENT`, `COMMAND`. |
 | `@fast`, `@slow` | As in Redis. |
 | `@all` | Every command. |
 
@@ -211,7 +211,7 @@ accepted and contain no commands, so Redis rule sets such as `+@all -@stream` lo
 naming a Redis command or subcommand datadam does not have (`+cluster`, `-debug`, `+cluster|info`): they are
 kept, shown by `ACL GETUSER`, and cover nothing. A name that is no Redis command is refused.
 
-`AUTH` and `HELLO` are never checked against a user's command rules, as in Redis: any logged-in user may log in
+`AUTH`, `HELLO` and `RESET` are never checked against a user's command rules, as in Redis: any logged-in user may log in
 again as another. A subcommand datadam does not have (`CLIENT TRACKING`) is refused by its command as unknown
 before permissions are checked, so it is neither a `NOPERM` reply nor an `ACL LOG` entry.
 

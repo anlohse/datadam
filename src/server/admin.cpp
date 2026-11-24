@@ -271,6 +271,12 @@ void Monitors::add(uint64_t client_id, std::shared_ptr<Subscriber> s) {
   count_.store(watchers_.size(), std::memory_order_relaxed);
 }
 
+void Monitors::remove(uint64_t client_id) {
+  std::lock_guard lock(mu_);
+  std::erase_if(watchers_, [&](const Watcher& w) { return w.id == client_id; });
+  count_.store(watchers_.size(), std::memory_order_relaxed);
+}
+
 namespace {
 
 // An argument as MONITOR shows it: quoted, with escapes for quotes,

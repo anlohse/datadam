@@ -3,9 +3,14 @@
 //   's' + sortable score + member    -> ""                         score order
 // Rank-based operations walk the score entries (O(rank)).
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <optional>
+#include <random>
+#include <unordered_map>
 
 #include "server/command.h"
 #include "storage/data_keys.h"
@@ -349,35 +354,62 @@ struct RangeQuery {
   Limit limit;
 };
 
-// Runs a range query; min/max are in the order the command takes them
-// (for REV: max first).
-void run_range(Cmd& c, std::string_view key, std::string_view a, std::string_view b, const RangeQuery& q) {
+// The bounds of a range query, parsed; min/max are in the order the command
+// takes them (for REV: max first).
+struct RangeBounds {
+  int64_t start = 0, stop = 0;  // by rank
+  std::optional<ScoreRange> scores;
+  std::optional<LexRange> lex;
+};
+
+// False on an error (replied).
+bool parse_range_bounds(Cmd& c, std::string_view a, std::string_view b, const RangeQuery& q, RangeBounds* out) {
   if (q.has_limit && q.by == RangeBy::Rank) {
-    return c.r.error("ERR syntax error, LIMIT is only supported in combination with either BYSCORE or BYLEX");
+    c.r.error("ERR syntax error, LIMIT is only supported in combination with either BYSCORE or BYLEX");
+    return false;
   }
   if (q.with_scores && q.by == RangeBy::Lex) {
-    return c.r.error("ERR syntax error, WITHSCORES not supported in combination with BYLEX");
+    c.r.error("ERR syntax error, WITHSCORES not supported in combination with BYLEX");
+    return false;
   }
   std::string_view min = q.rev ? b : a, max = q.rev ? a : b;
-  Entries out;
   if (q.by == RangeBy::Rank) {
     auto start = parse_int64(a), stop = parse_int64(b);
-    if (!start || !stop) return c.r.error(kNotInteger);
-    if (!read_collection(c, key, kZSet, true, [&](Txn& t) {
-          int64_t s, e;
-          if (normalize_range(*start, *stop, static_cast<int64_t>(t.size()), &s, &e)) out = scan_ranks(t, s, e, q.rev);
-        })) {
-      return;
+    if (!start || !stop) {
+      c.r.error(kNotInteger);
+      return false;
     }
+    out->start = *start;
+    out->stop = *stop;
   } else if (q.by == RangeBy::Score) {
-    auto range = parse_score_range(min, max);
-    if (!range) return c.r.error("ERR min or max is not a float");
-    if (!read_collection(c, key, kZSet, true, [&](Txn& t) { out = scan_scores(t, *range, q.rev, q.limit); })) return;
+    out->scores = parse_score_range(min, max);
+    if (!out->scores) {
+      c.r.error("ERR min or max is not a float");
+      return false;
+    }
   } else {
-    auto range = parse_lex_range(min, max);
-    if (!range) return c.r.error("ERR min or max not valid string range item");
-    if (!read_collection(c, key, kZSet, true, [&](Txn& t) { out = scan_lex(t, *range, q.rev, q.limit); })) return;
+    out->lex = parse_lex_range(min, max);
+    if (!out->lex) {
+      c.r.error("ERR min or max not valid string range item");
+      return false;
+    }
   }
+  return true;
+}
+
+Entries select_range(Txn& t, const RangeBounds& b, const RangeQuery& q) {
+  if (q.by == RangeBy::Score) return scan_scores(t, *b.scores, q.rev, q.limit);
+  if (q.by == RangeBy::Lex) return scan_lex(t, *b.lex, q.rev, q.limit);
+  int64_t s, e;
+  if (!normalize_range(b.start, b.stop, static_cast<int64_t>(t.size()), &s, &e)) return {};
+  return scan_ranks(t, s, e, q.rev);
+}
+
+void run_range(Cmd& c, std::string_view key, std::string_view a, std::string_view b, const RangeQuery& q) {
+  RangeBounds bounds;
+  if (!parse_range_bounds(c, a, b, q, &bounds)) return;
+  Entries out;
+  if (!read_collection(c, key, kZSet, true, [&](Txn& t) { out = select_range(t, bounds, q); })) return;
   reply_entries(c, out, q.with_scores);
 }
 
@@ -618,6 +650,291 @@ void cmd_bzmpop(Cmd& c) {
   mpop_generic(c, 2, timeout);
 }
 
+// ---- across keys
+
+// Every member and score of a sorted set, by member; a set counts as a
+// sorted set whose scores are all 1 (as in Redis).
+Entries all_entries(Txn& t) {
+  Entries out;
+  if (!t.exists()) return out;
+  out.reserve(t.size());
+  if (t.record()->type == ValueType::Set) {
+    t.scan("", "", false, [&](std::string_view m, std::string_view) {
+      out.push_back({std::string(m), 1.0});
+      return true;
+    });
+  } else {
+    t.scan("m", kMemberEnd, false, [&](std::string_view sub, std::string_view v) {
+      out.push_back({std::string(sub.substr(1)), score_from_sortable(read_be64(v))});
+      return true;
+    });
+  }
+  return out;
+}
+
+bool sorted_set_like(const Txn& t) { return !t.wrong_type(kZSet) || t.record()->type == ValueType::Set; }
+
+// Score order, then member order: how a sorted set lists its members.
+void sort_by_score(Entries& e) {
+  std::sort(e.begin(), e.end(), [](const Entry& a, const Entry& b) {
+    return a.score != b.score ? a.score < b.score : a.member < b.member;
+  });
+}
+
+enum class ZOp { Union, Inter, Diff };
+enum class Aggregate { Sum, Min, Max };
+
+struct ZOpArgs {
+  std::vector<std::string_view> keys;
+  std::vector<double> weights;
+  Aggregate aggregate = Aggregate::Sum;
+  bool with_scores = false;
+};
+
+// numkeys key [key ...] [WEIGHTS w ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]
+// from args[at]; WEIGHTS and AGGREGATE not for ZDIFF, WITHSCORES not for the
+// STORE forms. False on an error (replied).
+bool parse_zop(Cmd& c, size_t at, ZOp op, bool store, ZOpArgs* out) {
+  auto n = parse_int64(c.args[at]);
+  if (!n) {
+    c.r.error(kNotInteger);
+    return false;
+  }
+  if (*n < 1) {
+    c.r.error(std::format("ERR at least 1 input key is needed for '{}' command", to_lower(c.args[0])));
+    return false;
+  }
+  if (static_cast<uint64_t>(*n) > c.args.size() - at - 1) {
+    c.r.error(kSyntax);
+    return false;
+  }
+  size_t i = at + 1 + static_cast<size_t>(*n);
+  out->keys.assign(c.args.begin() + static_cast<std::ptrdiff_t>(at + 1),
+                   c.args.begin() + static_cast<std::ptrdiff_t>(i));
+  out->weights.assign(out->keys.size(), 1.0);
+  for (; i < c.args.size(); ++i) {
+    std::string opt = to_lower(c.args[i]);
+    if (op != ZOp::Diff && opt == "weights" && i + out->keys.size() < c.args.size()) {
+      for (size_t k = 0; k < out->keys.size(); ++k) {
+        auto w = parse_double(c.args[++i]);
+        if (!w) {
+          c.r.error("ERR weight value is not a float");
+          return false;
+        }
+        out->weights[k] = *w;
+      }
+    } else if (op != ZOp::Diff && opt == "aggregate" && i + 1 < c.args.size()) {
+      std::string a = to_lower(c.args[++i]);
+      if (a == "sum") {
+        out->aggregate = Aggregate::Sum;
+      } else if (a == "min") {
+        out->aggregate = Aggregate::Min;
+      } else if (a == "max") {
+        out->aggregate = Aggregate::Max;
+      } else {
+        c.r.error(kSyntax);
+        return false;
+      }
+    } else if (!store && opt == "withscores") {
+      out->with_scores = true;
+    } else {
+      c.r.error(kSyntax);
+      return false;
+    }
+  }
+  return true;
+}
+
+double aggregate(Aggregate a, double x, double y) {
+  switch (a) {
+    case Aggregate::Min: return std::min(x, y);
+    case Aggregate::Max: return std::max(x, y);
+    default: {
+      double s = x + y;
+      return std::isnan(s) ? 0 : s;  // inf + -inf
+    }
+  }
+}
+
+// The result of op over txns[first..] (weighted, aggregated), by score; false
+// (WRONGTYPE) if one of them is neither a sorted set nor a set.
+bool combine(Database::KeyTxns& txns, size_t first, ZOp op, const ZOpArgs& a, Entries* out) {
+  for (size_t i = first; i < txns.size(); ++i) {
+    if (!sorted_set_like(txns[i])) return false;
+  }
+  std::unordered_map<std::string, double> acc;
+  for (size_t i = first; i < txns.size(); ++i) {
+    size_t k = i - first;
+    Entries e = all_entries(txns[i]);
+    if (op != ZOp::Diff) {
+      for (auto& x : e) {
+        x.score *= a.weights[k];
+        if (std::isnan(x.score)) x.score = 0;  // inf * 0
+      }
+    }
+    if (k == 0) {
+      for (auto& x : e) acc.emplace(std::move(x.member), x.score);
+    } else if (op == ZOp::Union) {
+      for (auto& x : e) {
+        auto [it, added] = acc.emplace(x.member, x.score);
+        if (!added) it->second = aggregate(a.aggregate, it->second, x.score);
+      }
+    } else if (op == ZOp::Inter) {
+      std::unordered_map<std::string, double> kept;
+      for (auto& x : e) {
+        auto it = acc.find(x.member);
+        if (it != acc.end()) kept.emplace(std::move(x.member), aggregate(a.aggregate, it->second, x.score));
+      }
+      acc = std::move(kept);
+    } else {
+      for (const auto& x : e) acc.erase(x.member);
+    }
+    if (op != ZOp::Union && acc.empty()) break;
+  }
+  out->clear();
+  out->reserve(acc.size());
+  for (auto& [m, score] : acc) out->push_back({m, score});
+  sort_by_score(*out);
+  return true;
+}
+
+// ZUNION / ZINTER / ZDIFF numkeys key [key ...] ...
+void zop(Cmd& c, ZOp op) {
+  ZOpArgs a;
+  if (!parse_zop(c, 1, op, false, &a)) return;
+  Entries result;
+  bool ok = true;
+  c.db().transact_many(a.keys, [&](Database::KeyTxns& txns) { ok = combine(txns, 0, op, a, &result); });
+  if (!ok) return c.r.error(kWrongType);
+  reply_entries(c, result, a.with_scores);
+}
+
+void cmd_zunion(Cmd& c) { zop(c, ZOp::Union); }
+void cmd_zinter(Cmd& c) { zop(c, ZOp::Inter); }
+void cmd_zdiff(Cmd& c) { zop(c, ZOp::Diff); }
+
+// Replaces dst with the entries (none: dst is deleted).
+void store_entries(Txn& dst, const Entries& entries) {
+  dst.reset(kZSet);
+  for (const auto& e : entries) set_score(dst, e.member, e.score, std::nullopt);
+}
+
+// ZUNIONSTORE / ZINTERSTORE / ZDIFFSTORE destination numkeys key [key ...] ...
+void zop_store(Cmd& c, ZOp op) {
+  ZOpArgs a;
+  if (!parse_zop(c, 2, op, true, &a)) return;
+  std::vector<std::string_view> keys{c.args[1]};
+  keys.insert(keys.end(), a.keys.begin(), a.keys.end());
+  size_t stored = 0;
+  bool ok = true;
+  c.db().transact_many(keys, [&](Database::KeyTxns& txns) {
+    Entries result;
+    ok = combine(txns, 1, op, a, &result);
+    if (!ok) return;
+    store_entries(txns[0], result);
+    stored = result.size();
+  });
+  if (!ok) return c.r.error(kWrongType);
+  c.r.integer(static_cast<int64_t>(stored));
+}
+
+void cmd_zunionstore(Cmd& c) { zop_store(c, ZOp::Union); }
+void cmd_zinterstore(Cmd& c) { zop_store(c, ZOp::Inter); }
+void cmd_zdiffstore(Cmd& c) { zop_store(c, ZOp::Diff); }
+
+// ZINTERCARD numkeys key [key ...] [LIMIT limit]
+void cmd_zintercard(Cmd& c) {
+  auto numkeys = parse_int64(c.args[1]);
+  if (!numkeys || *numkeys <= 0) return c.r.error("ERR numkeys should be greater than 0");
+  if (static_cast<size_t>(*numkeys) > c.args.size() - 2) {
+    return c.r.error("ERR Number of keys can't be greater than number of args");
+  }
+  size_t end = 2 + static_cast<size_t>(*numkeys);
+  int64_t limit = 0;
+  if (end < c.args.size()) {
+    if (end + 2 != c.args.size() || !iequals(c.args[end], "limit")) return c.r.error(kSyntax);
+    auto l = parse_int64(c.args[end + 1]);
+    if (!l || *l < 0) return c.r.error("ERR LIMIT can't be negative");
+    limit = *l;
+  }
+  ZOpArgs a;
+  a.keys.assign(c.args.begin() + 2, c.args.begin() + static_cast<std::ptrdiff_t>(end));
+  a.weights.assign(a.keys.size(), 1.0);
+  Entries result;
+  bool ok = true;
+  c.db().transact_many(a.keys, [&](Database::KeyTxns& txns) { ok = combine(txns, 0, ZOp::Inter, a, &result); });
+  if (!ok) return c.r.error(kWrongType);
+  size_t n = result.size();
+  if (limit > 0) n = std::min<size_t>(n, static_cast<size_t>(limit));
+  c.r.integer(static_cast<int64_t>(n));
+}
+
+// ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
+void cmd_zrangestore(Cmd& c) {
+  RangeQuery q;
+  if (!parse_range_options(c, 5, &q, true)) return;
+  if (q.with_scores) return c.r.error(kSyntax);
+  RangeBounds bounds;
+  if (!parse_range_bounds(c, c.args[3], c.args[4], q, &bounds)) return;
+  std::array<std::string_view, 2> keys{c.args[1], c.args[2]};
+  size_t stored = 0;
+  bool wrong = false;
+  c.db().transact_many(keys, [&](Database::KeyTxns& txns) {
+    Txn& src = txns[1];
+    if (src.wrong_type(kZSet)) {
+      wrong = true;
+      return;
+    }
+    Entries range = src.exists() ? select_range(src, bounds, q) : Entries{};
+    store_entries(txns[0], range);
+    stored = range.size();
+  });
+  if (wrong) return c.r.error(kWrongType);
+  c.r.integer(static_cast<int64_t>(stored));
+}
+
+std::mt19937_64& rng() {
+  thread_local std::mt19937_64 r{std::random_device{}()};
+  return r;
+}
+
+// ZRANDMEMBER key [count [WITHSCORES]]
+void cmd_zrandmember(Cmd& c) {
+  std::optional<int64_t> count;
+  bool with_scores = false;
+  if (c.args.size() > 4) return c.r.error(kSyntax);
+  if (c.args.size() >= 3) {
+    count = parse_int64(c.args[2]);
+    if (!count) return c.r.error(kNotInteger);
+  }
+  if (c.args.size() == 4) {
+    if (!iequals(c.args[3], "withscores")) return c.r.error(kSyntax);
+    with_scores = true;
+  }
+  Entries all;
+  if (!read_collection(c, c.args[1], kZSet, true, [&](Txn& t) { all = all_entries(t); })) return;
+  if (!count) return all.empty() ? c.r.null() : c.r.bulk(all[rng()() % all.size()].member);
+  if (*count < 0) {
+    // Members may repeat: written as they are picked, not copied first.
+    uint64_t n = *count == INT64_MIN ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(-*count);
+    if (n > 1'000'000'000) return c.r.error(kMustBePositive);
+    if (all.empty()) n = 0;
+    bool pairs = with_scores && c.r.proto() >= 3;
+    c.r.array(with_scores && !pairs ? 2 * n : n);
+    for (uint64_t i = 0; i < n; ++i) {
+      const Entry& e = all[rng()() % all.size()];
+      if (pairs) c.r.array(2);
+      c.r.bulk(e.member);
+      if (with_scores) reply_score(c, e.score);
+    }
+    return;
+  }
+  Entries picked;
+  std::sample(all.begin(), all.end(), std::back_inserter(picked), static_cast<size_t>(*count), rng());
+  std::shuffle(picked.begin(), picked.end(), rng());
+  reply_entries(c, picked, with_scores);
+}
+
 }  // namespace
 
 CommandList zset_commands() {
@@ -647,6 +964,15 @@ CommandList zset_commands() {
       {"bzpopmax", {cmd_bzpopmax, -3}},
       {"zmpop", {cmd_zmpop, -4}},
       {"bzmpop", {cmd_bzmpop, -5}},
+      {"zunion", {cmd_zunion, -3}},
+      {"zinter", {cmd_zinter, -3}},
+      {"zdiff", {cmd_zdiff, -3}},
+      {"zunionstore", {cmd_zunionstore, -4}},
+      {"zinterstore", {cmd_zinterstore, -4}},
+      {"zdiffstore", {cmd_zdiffstore, -4}},
+      {"zintercard", {cmd_zintercard, -3}},
+      {"zrangestore", {cmd_zrangestore, -5}},
+      {"zrandmember", {cmd_zrandmember, -2}},
   };
 }
 

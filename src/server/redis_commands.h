@@ -187,6 +187,10 @@ struct ClientState {
   uint64_t acl_version = 0;
   bool tls = false;
   bool close_after_reply = false;
+  // CLIENT REPLY: OFF drops every reply; SKIP (2) drops its own and the
+  // next command's (counted down by the connection).
+  bool reply_off = false;
+  int reply_skip = 0;
   // Set by the connection: a side-effect-free read whose key is not cached
   // does not read the disk on this thread; it sets retry_later and load_key
   // instead, and the connection runs it again once the key is loaded.
