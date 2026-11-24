@@ -16,8 +16,8 @@ Debian/Ubuntu package ([what each holds, and the versioning policy](docs/release
 [CHANGELOG](CHANGELOG.md)).
 
 ```bash
-docker run -d -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:0.2
-sudo apt install ./datadam_0.2.0_amd64.deb      # Debian 13 / Ubuntu 24.04+: a systemd service on 127.0.0.1
+docker run -d -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:0.3
+sudo apt install ./datadam_0.3.0_amd64.deb      # Debian 13 / Ubuntu 24.04+: a systemd service on 127.0.0.1
 ```
 
 Security issues: see [SECURITY.md](SECURITY.md).
