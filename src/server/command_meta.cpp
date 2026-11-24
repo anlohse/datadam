@@ -264,7 +264,7 @@ const Entry kEntries[] = {
     {"json.forget", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.type", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.numincrby", {W | JSON | SLOW, {kReadWrite1, kNone}}},
-    {"json.nummultby", {W | JSON | SLOW, {kWrite1, kNone}}},
+    {"json.nummultby", {W | JSON | SLOW, {kReadWrite1, kNone}}},  // replies the new values
     {"json.strappend", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.strlen", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.arrappend", {W | JSON | SLOW, {kWrite1, kNone}}},
@@ -275,7 +275,7 @@ const Entry kEntries[] = {
     {"json.arrindex", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.objkeys", {R | JSON | SLOW, {kRead1, kNone}}},
     {"json.objlen", {R | JSON | SLOW, {kRead1, kNone}}},
-    {"json.toggle", {W | JSON | SLOW, {kWrite1, kNone}}},
+    {"json.toggle", {W | JSON | SLOW, {kReadWrite1, kNone}}},  // replies the new values
     {"json.clear", {W | JSON | SLOW, {kWrite1, kNone}}},
     {"json.merge", {W | JSON | SLOW, {kWrite1, kNone}}},
     // replication

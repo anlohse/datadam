@@ -2,10 +2,13 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <thread>
 
 #include "cache/object_cache.h"
 #include "db/database.h"
@@ -137,11 +140,14 @@ TEST_F(AclTest, WritesThatReturnValuesNeedReadAccess) {
   // what the key held, RENAME moves it where it may be read (as in Redis).
   run({"SET", "wo:1", "secret"});
   run({"RPUSH", "wo:l", "secret"});
+  run({"JSON.SET", "wo:j", "$", "42"});
   ASSERT_EQ(run({"ACL", "SETUSER", "dan", "on", ">pw", "%W~wo:*", "~rw:*", "+@all"}), "+OK\r\n");
   ClientState dan = login("dan", "pw");
   for (std::vector<std::string> cmd : std::vector<std::vector<std::string>>{
            {"GETDEL", "wo:1"}, {"GETSET", "wo:1", "x"}, {"GETEX", "wo:1"}, {"INCR", "wo:n"}, {"LPOP", "wo:l"},
-           {"RENAME", "wo:1", "rw:1"}, {"LMOVE", "wo:l", "rw:l", "LEFT", "LEFT"}, {"SPOP", "wo:s"}}) {
+           {"RENAME", "wo:1", "rw:1"}, {"LMOVE", "wo:l", "rw:l", "LEFT", "LEFT"}, {"SPOP", "wo:s"},
+           {"SET", "wo:1", "x", "NX", "GET"}, {"SET", "wo:1", "x", "get"}, {"JSON.NUMMULTBY", "wo:j", "$", "1"},
+           {"JSON.TOGGLE", "wo:j", "$"}}) {
     EXPECT_TRUE(noperm(run(dan, cmd))) << cmd[0];
   }
   EXPECT_EQ(run(dan, {"SET", "wo:1", "x"}), "+OK\r\n");
@@ -408,4 +414,72 @@ TEST_F(AclTest, UnknownSubcommandsAreUnknownNotDenied) {
   EXPECT_TRUE(run(gina, {"CLIENT", "MAINT_NOTIFICATIONS", "on"}).starts_with("-ERR unknown subcommand"));
   EXPECT_TRUE(noperm(run(gina, {"CLIENT", "LIST"})));  // a known one is still checked
   EXPECT_EQ(run({"ACL", "LOG"}).substr(0, 4), "*1\r\n");
+}
+
+TEST_F(AclTest, AUserDeletedAndCreatedAgainIsAnotherUser) {
+  // Deleting a user logs its connections out, even when a user of the same
+  // name (with a new password) exists by their next command.
+  ASSERT_EQ(run({"ACL", "SETUSER", "app", "on", ">old", "allkeys", "+@all"}), "+OK\r\n");
+  ClientState a = login("app", "old");
+  ASSERT_EQ(run({"ACL", "DELUSER", "app"}), ":1\r\n");
+  ASSERT_EQ(run({"ACL", "SETUSER", "app", "on", ">new", "allkeys", "+@all"}), "+OK\r\n");
+  EXPECT_EQ(run(a, {"PING"}), "-ERR the user of this connection was deleted\r\n");
+  EXPECT_TRUE(a.close_after_reply);
+  // Changing a user keeps its connections.
+  ClientState b = login("app", "new");
+  ASSERT_EQ(run({"ACL", "SETUSER", "app", ">newer", "-@dangerous"}), "+OK\r\n");
+  EXPECT_EQ(run(b, {"PING"}), "+PONG\r\n");
+}
+
+TEST_F(AclTest, SubcommandRulesCoverEveryCommandWithSubcommands) {
+  // A Redis rule set that denies subcommands must deny them here too, not be
+  // accepted and cover nothing.
+  ASSERT_EQ(run({"ACL", "SETUSER", "sub", "on", ">pw", "allkeys", "allchannels", "+@all", "-script|flush",
+                 "-function|flush", "-slowlog|reset", "-pubsub|channels", "-memory|usage", "-object|freq"}),
+            "+OK\r\n");
+  ClientState s = login("sub", "pw");
+  for (std::vector<std::string> cmd : std::vector<std::vector<std::string>>{
+           {"SCRIPT", "FLUSH"}, {"FUNCTION", "FLUSH"}, {"SLOWLOG", "RESET"}, {"PUBSUB", "CHANNELS"},
+           {"MEMORY", "USAGE", "k"}, {"OBJECT", "FREQ", "k"}}) {
+    EXPECT_TRUE(noperm(run(s, cmd))) << cmd[0] << " " << cmd[1];
+  }
+  EXPECT_EQ(run(s, {"SCRIPT", "EXISTS", "x"}), "*1\r\n:0\r\n");
+  EXPECT_FALSE(noperm(run(s, {"SLOWLOG", "LEN"})));
+  EXPECT_FALSE(noperm(run(s, {"FUNCTION", "LIST"})));
+  EXPECT_NE(run({"ACL", "GETUSER", "sub"}).find("-script|flush"), std::string::npos);
+}
+
+namespace {
+
+// Waits for a new index's backfill.
+void wait_ready(const std::function<std::string()>& info) {
+  for (int i = 0; i < 500 && info().find("ready") == std::string::npos; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+}  // namespace
+
+TEST_F(AclTest, IndexesTellOnlyWhatTheUserMayRead) {
+  // A UNIQUE clash names the key that has the value only to a user who may read it.
+  ASSERT_EQ(run({"IDX.CREATE", "byemail", "ON", "HASH", "PREFIX", "1", "user:", "SCHEMA", "email", "TAG", "UNIQUE"}),
+            "+OK\r\n");
+  wait_ready([&] { return run({"IDX.INFO", "byemail"}); });
+  run({"HSET", "user:t2:9", "email", "bob@corp"});
+  ASSERT_EQ(run({"ACL", "SETUSER", "t1", "on", ">pw", "~user:t1:*", "+@all"}), "+OK\r\n");
+  ClientState t1 = login("t1", "pw");
+  EXPECT_EQ(run(t1, {"HSET", "user:t1:x", "email", "bob@corp"}),
+            "-ERR UNIQUE index 'byemail' already has this value\r\n");
+  EXPECT_EQ(run({"HSET", "user:t1:x", "email", "bob@corp"}),
+            "-ERR UNIQUE index 'byemail' already has this value, for key 'user:t2:9'\r\n");
+
+  // FT.TAGVALS: the values of the keys the user may read, as FT.SEARCH finds.
+  ASSERT_EQ(run({"FT.CREATE", "tags", "ON", "HASH", "PREFIX", "1", "doc:", "SCHEMA", "owner", "TAG"}), "+OK\r\n");
+  wait_ready([&] { return run({"FT.INFO", "tags"}); });
+  run({"HSET", "doc:pub:1", "owner", "alice"});
+  run({"HSET", "doc:priv:1", "owner", "secret-owner"});
+  ASSERT_EQ(run({"ACL", "SETUSER", "pub", "on", ">pw", "~doc:pub:*", "+@all"}), "+OK\r\n");
+  ClientState pub = login("pub", "pw");
+  EXPECT_EQ(run(pub, {"FT.TAGVALS", "tags", "owner"}), "*1\r\n$5\r\nalice\r\n");
+  EXPECT_EQ(run({"FT.TAGVALS", "tags", "owner"}), "*2\r\n$5\r\nalice\r\n$12\r\nsecret-owner\r\n");
 }

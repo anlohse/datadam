@@ -142,8 +142,12 @@ void cmd_srandmember(Cmd& c) {
     uint64_t n = *count == INT64_MIN ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(-*count);
     if (n > 1'000'000'000) return c.r.error(kMustBePositive);
     if (all.empty()) n = 0;
+    size_t mark = c.r.mark();
     c.r.array(n);
-    for (uint64_t i = 0; i < n; ++i) c.r.bulk(all[rng()() % all.size()]);
+    for (uint64_t i = 0; i < n; ++i) {
+      c.r.bulk(all[rng()() % all.size()]);
+      if (counted_reply_too_large(c, mark)) return;
+    }
     return;
   }
   Members picked;

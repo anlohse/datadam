@@ -427,7 +427,9 @@ class Database {
   // The documents and entries of a search index (FT.INFO).
   void count_search_entries(const IndexRegistry::Ptr& index, uint64_t* docs, uint64_t* records);
   // The distinct values of a TAG field of a search index (FT.TAGVALS).
-  std::vector<std::string> tag_values(const IndexRegistry::Ptr& index, size_t field);
+  // FT.TAGVALS: the values of a TAG field, of the keys `may_read` allows (all if empty).
+  std::vector<std::string> tag_values(const IndexRegistry::Ptr& index, size_t field,
+                                      const std::function<bool(std::string_view)>& may_read = {});
   // Every key in a search index (FT.DROPINDEX DD).
   std::vector<std::string> search_keys(const IndexRegistry::Ptr& index);
   // Commits this thread's write batch, if any (before reading RocksDB directly).

@@ -164,7 +164,7 @@ A function gets the keys and arguments as its two parameters (`keys`, `args`), n
 
 | Command | Effect |
 |---|---|
-| `FUNCTION LOAD [REPLACE] code` | Loads a library; replies its name. Without `REPLACE`, a library of that name is an error. Function names are unique across libraries, and are made of letters, digits and `_`. |
+| `FUNCTION LOAD [REPLACE] code` | Loads a library; replies its name. Without `REPLACE`, a library of that name is an error. Function names are unique across libraries, and are made of letters, digits and `_`. The library's top-level code must end within 500 ms, as in Redis: `ERR Error registering functions: ... FUNCTION LOAD timeout`. |
 | `FCALL function numkeys key ... arg ...` | Runs a function. |
 | `FCALL_RO function numkeys ...` | Runs a function flagged `no-writes`; any other replies `ERR Can not execute a script with write flag using *_ro command.` |
 | `FUNCTION LIST [LIBRARYNAME pattern] [WITHCODE]` | Each library: `library_name`, `engine` (`LUA`), `functions` (`name`, `description`, `flags`), and `library_code` with `WITHCODE`. |
@@ -207,17 +207,27 @@ The check for `SCRIPT KILL` runs every 100,000 Lua instructions, so a script stu
 call (a huge `SORT`, a `KEYS *` on a big database) stops only after that call returns. Once killed, a script
 gets the error again at every instruction, so catching it with `pcall` does not keep it running.
 
+What runs inside one call of a library function is not interrupted either: a string pattern that backtracks
+(`string.rep('a', 1e5):find('.-.-.-.-b')`) runs to its end, and a script can allocate as much memory as the
+process may (there is no Lua memory limit). As in Redis, give `@scripting` only to users trusted not to run
+such scripts.
+
 ## The sandbox
 
 Scripts cannot reach files, processes, the network, or the server's memory:
 
 - Not available: `io`, `os` (except `os.clock`), `package`, `require`, `module`, `dofile`, `loadfile`, `load`,
-  `loadstring` (which accept bytecode), `debug`, `print`, `jit`, `getfenv`, `setfenv` and LuaJIT's `ffi`.
+  `loadstring` (which accept bytecode), `string.dump` (which makes it), `debug`, `print`, `jit`, `getfenv`,
+  `setfenv` and LuaJIT's `ffi`.
+- Scripts and libraries are source text: LuaJIT does not verify bytecode, which can read and write memory
+  outside the interpreter, so a script that starts with a bytecode header (`\x1bLJ`) is refused
+  (`ERR Error compiling script ... attempt to load a binary chunk`).
 - Globals cannot be created or read when they do not exist; use `local` variables. `KEYS` and `ARGV` are
-  set for each script.
+  set for each script, and removed when it ends (functions do not see them).
 - Scripts share one Lua state, as in Redis, whichever user runs them. So, as in Redis 7, the globals and the
   libraries (`redis`, `cjson`, `string`, `table`, `math`, `os`, `bit`, `coroutine`) are read-only:
-  `redis.call = ...`, `string.rep = nil`, `rawset(redis, ...)` or `setmetatable(redis, ...)` fail with
+  `redis.call = ...`, `string.rep = nil`, `rawset(redis, ...)`, `table.insert(redis, ...)` or
+  `setmetatable(redis, ...)` fail with
   `Attempt to modify a readonly table`, and their metatables (the strings' too) are hidden. A script cannot
   change what the next one finds; a replaced `redis.call` would have run in other users' scripts, with their
   permissions. A script's own tables are its own to change.

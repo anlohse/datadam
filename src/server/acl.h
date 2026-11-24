@@ -51,6 +51,10 @@ struct AclUser {
   std::vector<KeyPattern> keys;
   std::vector<std::string> channels;
   bool unrestricted = false;  // every command, every key: nothing to check
+  // Kept while a user of this name exists (ACL SETUSER changes keep it); a
+  // user deleted and created again gets another, so its old connections are
+  // not logged in as the new one.
+  uint64_t identity = 0;
 
   // Applies one rule; returns an error message or "".
   std::string apply(std::string_view rule);
@@ -135,6 +139,9 @@ class Acl {
   std::shared_ptr<const AclUser> initial_user() const;
   // Changes whenever a user changes, so connections know to reload theirs.
   uint64_t version() const { return version_.load(std::memory_order_acquire); }
+  // A connection's user as it is now: null if it was deleted since (even if
+  // a user of the same name was created again).
+  std::shared_ptr<const AclUser> reload(const AclUser& user) const;
 
  private:
   std::string store(std::string_view name, AclUser user, std::span<const std::string> rules);
@@ -142,6 +149,7 @@ class Acl {
   mutable std::shared_mutex mu_;
   std::map<std::string, std::shared_ptr<const AclUser>, std::less<>> users_;
   std::atomic<uint64_t> version_{1};
+  uint64_t next_identity_ = 1;  // under mu_
 };
 
 }  // namespace datadam

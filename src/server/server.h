@@ -72,6 +72,15 @@ class Server {
   template <class Stream>
   asio::awaitable<bool> wait_for_keys(Stream& stream, std::string& in, std::shared_ptr<asio::steady_timer>& timer,
                                       ClientState& client);
+  // CDC.READ BLOCK: the same, for a write past client.wait_after_seq.
+  template <class Stream>
+  asio::awaitable<bool> wait_for_writes(Stream& stream, std::string& in, std::shared_ptr<asio::steady_timer>& timer,
+                                        ClientState& client);
+  // Their common part: waits on `timer` until done() or the deadline, reading
+  // what the client sends meanwhile; false if it went away (or sent too much).
+  template <class Stream, class Done>
+  asio::awaitable<bool> watch_while_blocked(Stream& stream, std::string& in, asio::steady_timer& timer,
+                                            const ClientState& client, Done done);
 
   // FAILOVER: checks and starts the hand-over (run_failover); "" or an error.
   std::string failover(const std::string& host, uint16_t port, int64_t timeout_ms, bool force, bool abort);

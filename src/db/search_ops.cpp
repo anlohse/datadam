@@ -262,12 +262,14 @@ void Database::count_search_entries(const IndexRegistry::Ptr& index, uint64_t* d
   });
 }
 
-std::vector<std::string> Database::tag_values(const IndexRegistry::Ptr& index, size_t field) {
+std::vector<std::string> Database::tag_values(const IndexRegistry::Ptr& index, size_t field,
+                                              const std::function<bool(std::string_view)>& may_read) {
   std::vector<std::string> out;
   auto snapshot = storage_.snapshot();
   SearchScanner scanner(storage_, snapshot.get(), index->def);
   std::string p = index->def.field_prefix(field), value;
   scanner.scan(p, prefix_end(p), false, [&](const IndexDef::Entry& e) {
+    if (may_read && !may_read(e.owner)) return true;
     if (decode_tag(e.tuple.substr(1), &value) && (out.empty() || out.back() != value)) out.push_back(value);
     return true;
   });

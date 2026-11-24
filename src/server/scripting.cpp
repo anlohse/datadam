@@ -57,6 +57,8 @@ constexpr std::string_view kFunctionLibPrefix = "function:lib:";
 constexpr std::string_view kFunctionVersionKey = "function:version";
 constexpr int kMaxReplyDepth = 100;
 constexpr int kHookInstructions = 100000;  // SCRIPT KILL is checked this often
+// A library's top-level code (FUNCTION LOAD) must end within this, as in Redis.
+constexpr int64_t kLoadTimeoutUs = 500'000;
 
 char kEngineKey;  // its address keys the engine in the Lua registry
 
@@ -541,6 +543,13 @@ void ScriptEngine::setup() {
     lua_pushnil(L);
     lua_setglobal(L, name);
   }
+  // string.dump makes bytecode; nothing may load it, but it has no use either.
+  lua_getglobal(L, "string");
+  if (lua_istable(L, -1)) {
+    lua_pushnil(L);
+    lua_setfield(L, -2, "dump");
+  }
+  lua_pop(L, 1);
   // os: only clock, as in Redis.
   lua_newtable(L);
   lua_getglobal(L, "os");
@@ -602,6 +611,10 @@ void ScriptEngine::setup() {
 
   lua_sethook(L, [](lua_State* L, lua_Debug*) {
     ScriptEngine* e = of(L);
+    if (e && e->loading_ && steady_us() - e->load_started_us_ > kLoadTimeoutUs) {
+      lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, 1);  // pcall cannot catch it for good
+      luaL_error(L, "FUNCTION LOAD timeout");
+    }
     if (e && e->kill_.load()) {
       // From now on at every instruction: a script that catches the error
       // with pcall gets it again at its next one, until nothing catches it.
@@ -628,6 +641,12 @@ void ScriptEngine::protect_globals() {
       local proxy = setmetatable_({}, {__index = t, __newindex = refuse, __metatable = false})
       readonly[proxy] = true
       return proxy
+    end
+    -- table.insert writes with rawset: it would store into a read-only proxy.
+    local insert_ = real.table.insert
+    real.table.insert = function(t, ...)
+      if readonly[t] then refuse() end
+      return insert_(t, ...)
     end
     for _, name in ipairs({"redis", "cjson", "string", "table", "math", "os", "coroutine", "bit"}) do
       if type_(real[name]) == "table" then real[name] = readonly_table(real[name]) end
@@ -718,7 +737,9 @@ std::string ScriptEngine::load_locked(std::string_view body, std::string* sha, b
       at = comma + 1;
     }
   }
-  if (luaL_loadbuffer(L_, code.data(), code.size(), "@user_script") != 0) {
+  // Source text only ("t"): LuaJIT does not verify bytecode, and crafted
+  // bytecode reads and writes memory outside the VM.
+  if (luaL_loadbufferx(L_, code.data(), code.size(), "@user_script", "t") != 0) {
     std::string msg = lua_tostring(L_, -1);
     lua_pop(L_, 1);
     return std::format("ERR Error compiling script (new function): {}", msg);
@@ -819,6 +840,15 @@ void ScriptEngine::run(Cmd& c, int ref, bool as_function, std::span<const std::s
   // A SCRIPT KILL of the last script left the hook at every instruction.
   if (lua_gethookcount(L) != kHookInstructions) lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, kHookInstructions);
   int status = lua_pcall(L, nargs, 1, 0);
+  if (!as_function) {
+    // Not left for the next script, nor for a function (whose environment
+    // reads the globals): they may be another user's.
+    for (const char* name : {"KEYS", "ARGV"}) {
+      lua_pushstring(L, name);
+      lua_pushnil(L);
+      lua_rawset(L, LUA_GLOBALSINDEX);
+    }
+  }
   run_ = nullptr;
   running_ = false;
   kill_ = false;
@@ -1028,7 +1058,7 @@ std::string ScriptEngine::compile_library(std::string_view code, bool replace, s
 
   lua_State* L = L_;
   int base = lua_gettop(L);
-  if (luaL_loadbuffer(L, body.data(), body.size(), "@user_function") != 0) {
+  if (luaL_loadbufferx(L, body.data(), body.size(), "@user_function", "t") != 0) {
     std::string msg = lua_tostring(L, -1);
     lua_settop(L, base);
     return std::format("ERR Error compiling function: {}", msg);
@@ -1056,9 +1086,12 @@ std::string ScriptEngine::compile_library(std::string_view code, bool replace, s
 
   Loading loading;
   loading_ = &loading;
+  load_started_us_ = steady_us();
+  if (lua_gethookcount(L) != kHookInstructions) lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, kHookInstructions);
   lua_pushvalue(L, -2);
   int status = lua_pcall(L, 0, 0, 0);
   loading_ = nullptr;
+  lua_sethook(L, lua_gethook(L), LUA_MASKCOUNT, kHookInstructions);
   auto unref_all = [&] {
     for (auto& [n, fn] : loading.functions) luaL_unref(L, LUA_REGISTRYINDEX, fn.ref);
   };

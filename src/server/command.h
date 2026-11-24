@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
@@ -148,6 +149,17 @@ std::optional<double> parse_block_timeout(Cmd& c, std::string_view arg);
 // (inside EXEC, or not on a connection) or the timeout passed; it replies
 // that nothing came.
 bool block_for_keys(Cmd& c, std::span<const std::string_view> keys, double timeout_s);
+
+// A reply whose size the client chooses with a count (SRANDMEMBER key -count,
+// which may repeat members) stops at this; bound it, as it is built in memory.
+inline constexpr size_t kMaxCountedReply = size_t{512} << 20;
+// Past kMaxCountedReply since `mark`: replaces what was written with an error.
+inline bool counted_reply_too_large(Cmd& c, size_t mark) {
+  if (c.r.mark() - mark <= kMaxCountedReply) return false;
+  c.r.rewind(mark);
+  c.r.error(std::format("ERR the reply would be larger than {} MB", kMaxCountedReply >> 20));
+  return true;
+}
 
 // For commands that return keys found by other means (KEYS, SCAN, IDX.*):
 // whether the logged-in user may read this key.

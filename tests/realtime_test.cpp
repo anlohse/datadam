@@ -501,6 +501,24 @@ TEST_F(Live, AClientThatLeavesWhileBlockedTakesNothing) {
   EXPECT_EQ(p.text({"LLEN", "q"}), "1");
 }
 
+TEST_F(Live, AClientThatSendsTooMuchWhileBlockedIsDisconnected) {
+  // Past what is kept while blocked, the connection could no longer be watched
+  // for its end without reading: it is closed, and takes nothing.
+  Client c(port());
+  c.send({"BLPOP", "q", "5"});
+  std::this_thread::sleep_for(50ms);
+  try {
+    c.send({"SET", "k", std::string(2 << 20, 'x')});
+  } catch (const std::exception&) {
+    // closed before all of it was sent
+  }
+  EXPECT_THROW(c.read(), std::exception);
+  Client p(port());
+  p.text({"RPUSH", "q", "x"});
+  std::this_thread::sleep_for(100ms);
+  EXPECT_EQ(p.text({"LLEN", "q"}), "1");
+}
+
 TEST_F(Live, PublishReachesSubscribersAtOnce) {
   Client sub(port()), pub(port());
   EXPECT_EQ(texts(sub.run({"SUBSCRIBE", "ch"})), (std::vector<std::string>{"subscribe", "ch", "1"}));

@@ -335,7 +335,10 @@ void cmd_ft_tagvals(Cmd& c) {
   if (fi < 0 || index->def.fields[static_cast<size_t>(fi)].type != IndexFieldType::Tag) {
     return c.r.error(std::format("ERR no TAG field '{}' in index '{}'", c.args[2], index->def.name));
   }
-  auto values = c.db().tag_values(index, static_cast<size_t>(fi));
+  // Only the values of keys the user may read, as FT.SEARCH finds only those.
+  std::function<bool(std::string_view)> may_read;
+  if (!reads_all_keys(c)) may_read = [&](std::string_view key) { return may_read_key(c, key); };
+  auto values = c.db().tag_values(index, static_cast<size_t>(fi), may_read);
   c.r.array(values.size());
   for (const auto& v : values) c.r.bulk(v);
 }

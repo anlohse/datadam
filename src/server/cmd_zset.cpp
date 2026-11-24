@@ -920,12 +920,14 @@ void cmd_zrandmember(Cmd& c) {
     if (n > 1'000'000'000) return c.r.error(kMustBePositive);
     if (all.empty()) n = 0;
     bool pairs = with_scores && c.r.proto() >= 3;
+    size_t mark = c.r.mark();
     c.r.array(with_scores && !pairs ? 2 * n : n);
     for (uint64_t i = 0; i < n; ++i) {
       const Entry& e = all[rng()() % all.size()];
       if (pairs) c.r.array(2);
       c.r.bulk(e.member);
       if (with_scores) reply_score(c, e.score);
+      if (counted_reply_too_large(c, mark)) return;
     }
     return;
   }

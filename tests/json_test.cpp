@@ -475,3 +475,31 @@ TEST_F(JsonIndexes, TypedReturnOfAnIndexFieldIsTheValueAtItsPath) {
   EXPECT_EQ(run({"IDX.QUERY", "t", "tag", "=", "b", "RETURNJSON", "1", "tag"}).items[1].items[1].text,
             R"(["a","b"])");
 }
+
+TEST_F(JsonCommands, PathsAndFormattingHaveLimits) {
+  std::string zeros = "[";
+  for (int i = 0; i < 2000; ++i) zeros += i ? ",0" : "0";
+  zeros += "]";
+  ASSERT_EQ(text({"JSON.SET", "k", "$", zeros}), "OK");
+  // A filter runs its path again for every candidate: nested ones grow as N^3.
+  Value v = run({"JSON.GET", "k", "$..[?($..[?($..x)])]"});
+  EXPECT_TRUE(v.error);
+  EXPECT_NE(v.text.find("takes too much work"), std::string::npos) << v.text;
+  EXPECT_EQ(text({"JSON.GET", "k", "$[1999]"}), "[0]");
+  EXPECT_EQ(text({"JSON.GET", "k", "$..[?(@ == 0)]"}).size(), 2 + 2000 * 2 - 1);
+  // A command that fails midway replies the error alone, not an array cut short.
+  std::vector<std::string> mget{"JSON.MGET", "k", "k", "$..[?($..[?($..x)])]"};
+  std::vector<std::string_view> views(mget.begin(), mget.end());
+  std::string out;
+  Reply reply(out, 2);
+  execute_redis_command(*ctx_, client_, views, reply);
+  EXPECT_EQ(out.substr(0, 9), "-ERR path") << out.substr(0, 40);
+  // INDENT, NEWLINE and SPACE repeat at every line: the text could be far
+  // larger than the document.
+  v = run({"JSON.GET", "k", "INDENT", std::string(300 << 10, ' '), "NEWLINE", "\n"});
+  EXPECT_TRUE(v.error);
+  EXPECT_NE(v.text.find("larger than 512 MB"), std::string::npos) << v.text;
+  EXPECT_EQ(text({"JSON.SET", "small", "$", R"({"a":[1]})"}), "OK");
+  EXPECT_EQ(text({"JSON.GET", "small", "INDENT", "  ", "NEWLINE", "\n", "SPACE", " "}),
+            "{\n  \"a\": [\n    1\n  ]\n}");
+}
