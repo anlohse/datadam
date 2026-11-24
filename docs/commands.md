@@ -227,7 +227,7 @@ The family differs from Redis in several ways:
 | HKEYS, HVALS | `HKEYS key`, `HVALS key` | Field byte order. |
 | HINCRBY | `HINCRBY key field increment` | `ERR hash value is not an integer` if the field is not an integer. |
 | HINCRBYFLOAT | `HINCRBYFLOAT key field increment` | `ERR hash value is not a float` if the field is not a number. |
-| HRANDFIELD | `HRANDFIELD key [count [WITHVALUES]]` | Reads the whole hash (O(N)). A positive count gives distinct fields, a negative one may repeat them (at most 1,000,000,000). |
+| HRANDFIELD | `HRANDFIELD key [count [WITHVALUES]]` | Reads the whole hash (O(N)). A positive count gives distinct fields, a negative one may repeat them (at most 1,000,000,000, and a reply of at most 512 MB: `ERR the reply would be larger than 512 MB`). |
 | HSCAN | see [SCAN family](#scan-family) | |
 
 Writes to a hash keep its TTL. Hashes can be indexed by [secondary indexes](secondary-indexes.md) and
@@ -245,7 +245,7 @@ Writes to a hash keep its TTL. Hashes can be indexed by [secondary indexes](seco
 | SCARD | `SCARD key` | O(1). |
 | SMEMBERS | `SMEMBERS key` | Members in byte order. A set in RESP3. |
 | SPOP | `SPOP key [count]` | Reads the whole set (O(N)). A negative count replies `ERR value is out of range, must be positive`. |
-| SRANDMEMBER | `SRANDMEMBER key [count]` | Reads the whole set (O(N)). A negative count may repeat members (at most 1,000,000,000). |
+| SRANDMEMBER | `SRANDMEMBER key [count]` | Reads the whole set (O(N)). A negative count may repeat members (at most 1,000,000,000, and a reply of at most 512 MB). |
 | SMOVE | `SMOVE source destination member` | Both keys must be sets (or missing). |
 | SINTER, SUNION, SDIFF | `SINTER key [key ...]` (same for the others) | |
 | SINTERSTORE, SUNIONSTORE, SDIFFSTORE | `SINTERSTORE destination key [key ...]` (same for the others) | The destination is overwritten whatever its type; an empty result deletes it. The source keys must be sets. |
@@ -281,7 +281,7 @@ Writes to a hash keep its TTL. Hashes can be indexed by [secondary indexes](seco
 | ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE | `ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS ...] [AGGREGATE ...]` (`ZDIFFSTORE` without the options) | Stores the result (overwriting `destination` whatever its type; an empty result deletes it) and replies its size. |
 | ZINTERCARD | `ZINTERCARD numkeys key [key ...] [LIMIT limit]` | Computes the full intersection, then applies `LIMIT`. |
 | ZRANGESTORE | `ZRANGESTORE destination source min max [BYSCORE\|BYLEX] [REV] [LIMIT offset count]` | `ZRANGE` whose result is stored; replies its size. |
-| ZRANDMEMBER | `ZRANDMEMBER key [count [WITHSCORES]]` | Distinct members for a positive count, possibly repeated ones for a negative count (at most 10^9). |
+| ZRANDMEMBER | `ZRANDMEMBER key [count [WITHSCORES]]` | Distinct members for a positive count, possibly repeated ones for a negative count (at most 10^9, and a reply of at most 512 MB). |
 | BZPOPMIN, BZPOPMAX | `BZPOPMIN key [key ...] timeout` (same for `BZPOPMAX`) | `[key, member, score]`; waits if every set is empty. See [Blocking commands](#blocking-commands). |
 | BZMPOP | `BZMPOP timeout numkeys key [key ...] MIN\|MAX [COUNT count]` | `ZMPOP` that waits. |
 | ZSCAN | see [SCAN family](#scan-family) | |
@@ -386,7 +386,7 @@ to itself. See [Lua scripting](scripting.md).
 | SCRIPT | `SCRIPT LOAD script \| EXISTS sha1 [sha1 ...] \| FLUSH [ASYNC\|SYNC] \| KILL \| HELP` | The cache is in memory and per server. |
 | FCALL | `FCALL function numkeys [key ...] [arg ...]` | Runs a function. |
 | FCALL_RO | As `FCALL` | Only for functions flagged `no-writes`. |
-| FUNCTION | `FUNCTION LOAD [REPLACE] code \| DELETE library \| FLUSH [ASYNC\|SYNC] \| LIST [LIBRARYNAME pattern] [WITHCODE] \| STATS \| KILL \| HELP` | Libraries are stored and replicated. `DUMP` and `RESTORE` are not supported. |
+| FUNCTION | `FUNCTION LOAD [REPLACE] code \| DELETE library \| FLUSH [ASYNC\|SYNC] \| LIST [LIBRARYNAME pattern] [WITHCODE] \| STATS \| KILL \| HELP` | Libraries are stored and replicated; a library's top-level code must end within 500 ms. `DUMP` and `RESTORE` are not supported. |
 
 ## JSON
 
@@ -448,7 +448,7 @@ The RediSearch-compatible subset, with `TAG` and `NUMERIC` fields. See [Search](
 | FT.DROPINDEX | `FT.DROPINDEX index [DD]` |
 | FT.INFO | `FT.INFO index` |
 | FT._LIST | `FT._LIST` |
-| FT.TAGVALS | `FT.TAGVALS index field` |
+| FT.TAGVALS | `FT.TAGVALS index field` (the values of the keys the user may read) |
 
 Options of RediSearch that only matter for full-text search are accepted and ignored. `TEXT`, `GEO` and
 `VECTOR` fields are refused. `FT.SEARCH` returns and counts only the keys the logged-in user may read.

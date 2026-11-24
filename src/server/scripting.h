@@ -149,6 +149,7 @@ class ScriptEngine {
   uint64_t loaded_version_ = 0;
   Run* run_ = nullptr;
   Loading* loading_ = nullptr;
+  int64_t load_started_us_ = 0;  // steady clock, while loading_
   std::atomic<bool> running_{false};
   std::atomic<std::thread::id> runner_{};
   std::atomic<bool> wrote_{false};

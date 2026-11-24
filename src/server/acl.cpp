@@ -22,13 +22,18 @@ bool is_hex_hash(std::string_view s) {
 }
 
 // Commands whose first argument is a subcommand (for +cmd|sub rules).
+// Every command of datadam's that has subcommands: a rule such as
+// -script|flush must cover what it names (rules for the subcommands of other
+// commands would be kept and cover nothing: they would fail open).
 bool has_subcommands(std::string_view name) {
-  return name == "config" || name == "client" || name == "acl" || name == "cache" || name == "command";
+  return name == "config" || name == "client" || name == "acl" || name == "cache" || name == "command" ||
+         name == "script" || name == "function" || name == "slowlog" || name == "object" || name == "memory" ||
+         name == "pubsub";
 }
 
 // The subcommands datadam implements, for each command that has them (keep in
 // step with the handlers: cmd_client, cmd_config, cmd_acl, cmd_cache,
-// cmd_command). Another one is refused by its command as unknown before any
+// cmd_command, cmd_script, cmd_admin, cmd_pubsub). Another one is refused by its command as unknown before any
 // permission is checked, as in Redis: not an ACL denial, nor an ACL LOG entry.
 bool known_subcommand(std::string_view name, std::string_view sub) {
   static const std::unordered_map<std::string_view, std::vector<std::string_view>> known = {
@@ -37,6 +42,12 @@ bool known_subcommand(std::string_view name, std::string_view sub) {
       {"command", {"count", "docs", "getkeys", "info", "list"}},
       {"acl", {"cat", "deluser", "getuser", "list", "log", "setuser", "users", "whoami"}},
       {"cache", {"classes", "clear", "stats"}},
+      {"script", {"exists", "flush", "help", "kill", "load"}},
+      {"function", {"delete", "dump", "flush", "help", "kill", "list", "load", "restore", "stats"}},
+      {"slowlog", {"get", "help", "len", "reset"}},
+      {"object", {"encoding", "freq", "help", "idletime", "refcount"}},
+      {"memory", {"help", "usage"}},
+      {"pubsub", {"channels", "help", "numpat", "numsub", "shardchannels", "shardnumsub"}},
   };
   auto it = known.find(name);
   return it == known.end() || std::ranges::find(it->second, sub) != it->second.end();
@@ -297,9 +308,17 @@ AclDenial acl_check(const AclUser& user, std::string_view name, const CommandSpe
     std::string message = std::format("NOPERM User {} has no permissions to run the '{}' command", user.name, object);
     return {"command", std::move(object), std::move(message)};
   }
+  // SET ... GET replies what the key held: it reads it too (as in Redis,
+  // whose key specification for SET marks it so).
+  uint8_t also = 0;
+  if (name == "set") {
+    for (size_t i = 3; i < args.size(); ++i) {
+      if (iequals(args[i], "get")) also = kKeyRead;
+    }
+  }
   AclDenial denied;
   for_each_key(spec, args, [&](std::string_view key, uint8_t access) {
-    if (user.may_access(key, access)) return true;
+    if (user.may_access(key, access | also)) return true;
     denied = {"key", std::string(key), "NOPERM No permissions to access a key"};
     return false;
   });
@@ -316,6 +335,7 @@ Acl::Acl() {
   d.apply("allkeys");
   d.apply("allchannels");
   d.apply("+@all");
+  d.identity = next_identity_++;
   users_.emplace("default", std::make_shared<const AclUser>(std::move(d)));
 }
 
@@ -323,6 +343,11 @@ std::shared_ptr<const AclUser> Acl::find(std::string_view name) const {
   std::shared_lock lock(mu_);
   auto it = users_.find(name);
   return it == users_.end() ? nullptr : it->second;
+}
+
+std::shared_ptr<const AclUser> Acl::reload(const AclUser& user) const {
+  auto now = find(user.name);
+  return now && now->identity == user.identity ? now : nullptr;
 }
 
 std::vector<std::shared_ptr<const AclUser>> Acl::users() const {
@@ -343,7 +368,9 @@ std::string Acl::store(std::string_view name, AclUser user, std::span<const std:
     }
   }
   std::unique_lock lock(mu_);
-  users_[std::string(name)] = std::make_shared<const AclUser>(std::move(user));
+  auto& slot = users_[std::string(name)];
+  user.identity = slot ? slot->identity : next_identity_++;
+  slot = std::make_shared<const AclUser>(std::move(user));
   version_.fetch_add(1, std::memory_order_acq_rel);
   return {};
 }

@@ -414,6 +414,19 @@ TEST_F(AdminTest, MemcacheNeedsAuthWhenAPasswordIsSet) {
   EXPECT_EQ(send("get k\r\n").second, "VALUE k 0 1\r\nv\r\nEND\r\n");
 }
 
+TEST_F(AdminTest, MemcacheValuesAreBoundedByTheQueryBufferLimit) {
+  // A value is held whole before it is stored: client-query-buffer-limit
+  // bounds it, as it bounds a Redis request.
+  EXPECT_EQ(raw({"CONFIG", "SET", "client-query-buffer-limit", "1mb"}), "+OK\r\n");
+  MemcacheSession session(*ctx_);
+  std::string out;
+  size_t pos = 0;
+  auto st = session.process("set k 0 0 2000000\r\n", pos, out);
+  EXPECT_EQ(st, MemcacheSession::Status::Close);
+  EXPECT_EQ(out, "SERVER_ERROR object too large for cache\r\n");
+  EXPECT_EQ(raw({"CONFIG", "SET", "client-query-buffer-limit", "1gb"}), "+OK\r\n");
+}
+
 TEST_F(AdminTest, ReadOfAnUncachedKeyIsDeferred) {
   run({"SET", "small", "s"});
   run({"SET", "cold", "c"});

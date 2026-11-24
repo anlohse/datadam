@@ -335,6 +335,12 @@ path it is `ERR Path '<path>' does not exist`.
   changes nothing.
 - **Invalid JSON** in a value: `ERR invalid JSON`.
 - **Invalid paths**: `ERR invalid path '<path>': <reason>`.
+- **Costly paths.** A path selects at most 1,048,576 values (`ERR path '<path>' selects more than 1048576
+  values`), and its evaluation, filters included, has a bound on the work it does: filters run their own paths
+  again for each candidate, so nested `$..` filters grow as a power of the document's size
+  (`ERR path '<path>' takes too much work to evaluate`). A command that fails this way replies only the error.
+- **Formatting.** `JSON.GET` with `INDENT`, `NEWLINE` or `SPACE` repeats them at every line; past 512 MB of
+  text it fails with `ERR the formatted JSON is larger than 512 MB`.
 - **Wrong key type**: `WRONGTYPE Operation against a key holding the wrong kind of value`, both for `JSON.*` on
   a non-JSON key and for string commands such as `GET` on a JSON key.
 - **Missing key** for commands that need one (`NUMINCRBY`, `NUMMULTBY`, `STRAPPEND`, `ARRAPPEND`, `ARRINSERT`,

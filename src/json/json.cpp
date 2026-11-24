@@ -1,5 +1,7 @@
 #include "json/json.h"
 
+#include "json/json_path.h"  // JsonPathError
+
 #include <algorithm>
 #include <format>
 #include <utility>
@@ -64,10 +66,17 @@ namespace {
 
 std::string scalar(const Json& v) { return v.dump(-1, ' ', false, Json::error_handler_t::replace); }
 
+// JSON.GET INDENT/NEWLINE/SPACE repeat their strings at every line: the
+// formatted text could be far larger than the document.
+constexpr size_t kMaxFormattedJson = size_t{512} << 20;
+
 void dump(const Json& v, const JsonFormat& f, int level, std::string& out) {
   auto line = [&](int depth) {
     out += f.newline;
     for (int i = 0; i < depth; ++i) out += f.indent;
+    if (out.size() > kMaxFormattedJson) {
+      throw JsonPathError(std::format("ERR the formatted JSON is larger than {} MB", kMaxFormattedJson >> 20));
+    }
   };
   if (v.is_object() || v.is_array()) {
     bool object = v.is_object();

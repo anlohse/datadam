@@ -245,7 +245,8 @@ TEST_F(Scripts, NoScriptChangesWhatTheNextOneFinds) {
        {"redis.call = function() return 'hijacked' end", "redis = {}", "string.rep = nil", "cjson.encode = nil",
         "rawset(redis, 'call', nil)", "rawset(_G, 'redis', {})", "setmetatable(redis, {})",
         "getmetatable('').__index = {}", "setmetatable(_G, {})", "_G.redis = {}", "getfenv(1).redis = {}",
-        "table.insert = nil", "math.floor = nil"}) {
+        "table.insert = nil", "math.floor = nil", "table.insert(_G, 1)", "table.insert(redis, 1)",
+        "table.insert(string, 1, 'x')"}) {
     EXPECT_TRUE(eval(attempt).error) << attempt;
   }
   EXPECT_EQ(eval("return redis.call('PING')").text, "PONG");
@@ -526,4 +527,44 @@ TEST_F(LiveScripts, ScriptKillStopsALoop) {
   EXPECT_EQ(reader.text({"GET", "w"}), "1");
   EXPECT_EQ(runner.read().text, "end");
   EXPECT_EQ(killer.text({"SCRIPT", "KILL"}), "NOTBUSY No scripts in execution right now.");
+}
+
+TEST_F(Scripts, OnlySourceTextIsLoaded) {
+  // LuaJIT does not verify bytecode: crafted bytecode reads and writes memory
+  // outside the VM. Scripts and libraries are source text only.
+  EXPECT_EQ(eval("return string.dump == nil and 'gone' or 'there'").text, "gone");
+  const std::string bytecode("\x1bLJ\x02\x0a\x00", 6);
+  Value v = eval(bytecode);
+  EXPECT_TRUE(v.error);
+  EXPECT_NE(v.text.find("Error compiling script"), std::string::npos) << v.text;
+  EXPECT_TRUE(run({"SCRIPT", "LOAD", bytecode}).error);
+  EXPECT_TRUE(run({"FUNCTION", "LOAD", "#!lua name=b\n" + bytecode}).error);
+}
+
+TEST_F(Scripts, KeysAndArgvDoNotOutliveTheirScript) {
+  // They may be another user's: neither the next script nor a function sees them.
+  EXPECT_EQ(eval("return ARGV[1]", {"user:1"}, {"s3cret"}).text, "s3cret");
+  EXPECT_EQ(text({"FUNCTION", "LOAD",
+                  "#!lua name=spy\nredis.register_function('spy', function() return ARGV[1] end)"}),
+            "spy");
+  Value v = run({"FCALL", "spy", "0"});
+  EXPECT_TRUE(v.error);
+  EXPECT_EQ(v.text.find("s3cret"), std::string::npos) << v.text;
+  EXPECT_EQ(eval("return ARGV[1] == nil and 'none' or ARGV[1]").text, "none");
+}
+
+TEST_F(Scripts, FunctionLoadHasATimeLimit) {
+  // A library's top-level code holds the scripting engine: it must end.
+  Value v = run({"FUNCTION", "LOAD", "#!lua name=slow\nwhile true do end"});
+  EXPECT_TRUE(v.error);
+  EXPECT_NE(v.text.find("FUNCTION LOAD timeout"), std::string::npos) << v.text;
+  // Catching the error does not keep it going.
+  v = run({"FUNCTION", "LOAD", "#!lua name=slow\nwhile true do pcall(function() while true do end end) end"});
+  EXPECT_NE(v.text.find("FUNCTION LOAD timeout"), std::string::npos) << v.text;
+  EXPECT_EQ(eval("local n = 0 for i = 1, 1000000 do n = n + 1 end return n").text, "1000000");
+}
+
+TEST_F(Scripts, StatusRepliesStayOnOneLine) {
+  // CR or LF in a status would end it and forge the replies after it.
+  EXPECT_EQ(eval("return redis.status_reply('OK\\r\\n:666')").text, "OK  :666");
 }

@@ -114,8 +114,10 @@ void Reply::header(char type, int64_t n) {
 }
 
 void Reply::simple(std::string_view s) {
+  // A status may come from a script (redis.status_reply): CR or LF in it
+  // would end the line and forge the replies after it.
   out_.push_back('+');
-  out_.append(s);
+  for (char c : s) out_.push_back(c == '\r' || c == '\n' ? ' ' : c);
   out_.append("\r\n");
 }
 

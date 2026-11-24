@@ -896,8 +896,7 @@ void Database::KeyTxn::prepare_indexes() {
           // Taken, unless that entry is stale (its owner is gone or newer).
           auto owner = db_.live_unique_owner(def, *value);
           if (owner && *owner != key_) {
-            throw IndexConstraintError(std::format("ERR UNIQUE index '{}' already has this value, for key '{}'",
-                                                   def.name, *owner));
+            throw IndexConstraintError::taken(def.name, *owner);
           }
         }
       }
@@ -1286,8 +1285,7 @@ Database::RenameResult Database::transfer(std::string_view src, std::string_view
             if (auto value = read_index(entry)) {
               auto owner = live_unique_owner(index->def, *value);
               if (owner && *owner != dst && (keep_source || *owner != src)) {
-                throw IndexConstraintError(std::format(
-                    "ERR UNIQUE index '{}' already has this value, for key '{}'", index->def.name, *owner));
+                throw IndexConstraintError::taken(index->def.name, *owner);
               }
             }
           }

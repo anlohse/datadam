@@ -8,11 +8,19 @@
     {
       "name": "rocksdb",
       "default-features": false,
-      "features": [ "lz4", "zstd" ]
+      "features": [
+        "lz4",
+        "zstd"
+      ]
     },
     "gtest",
     "luajit",
     "nlohmann-json",
     "openssl"
-  ]
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "./vcpkg-ports"
+    ]
+  }
 }

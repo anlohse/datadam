@@ -26,6 +26,35 @@ unchanged (format 1): a 0.2 data directory opens as it is, and 0.2 can open one 
 - `ZUNION`, `ZINTER`, `ZDIFF`, `ZUNIONSTORE`, `ZINTERSTORE`, `ZDIFFSTORE`, `ZINTERCARD`, `ZRANGESTORE` and
   `ZRANDMEMBER`; the operations across keys take sets too, as in Redis.
 
+### Security
+
+From a review of the network input, authentication and ACLs, the Lua sandbox and the data commands:
+
+- **Lua: bytecode.** `EVAL`, `SCRIPT LOAD` and `FUNCTION LOAD` accepted LuaJIT bytecode, which LuaJIT does not
+  verify: a user allowed to run scripts could read and write the server's memory, and run code in it. Only
+  source text is loaded now, and `string.dump` is gone.
+- **Lua:** `KEYS` and `ARGV` stayed set after a script, and a function (`FCALL`) of another user could read
+  them; `FUNCTION LOAD` ran the library's top-level code with no time limit (a loop hung every script, and then
+  the server) and now stops it after 500 ms; `redis.status_reply` with CR or LF forged replies;
+  `table.insert` could store into the read-only shared tables.
+- **ACL:** `SET ... GET`, `JSON.NUMMULTBY` and `JSON.TOGGLE` reply what the key held, but needed only write
+  access (`%W~`); rules for the subcommands of `SCRIPT`, `FUNCTION`, `SLOWLOG`, `OBJECT`, `MEMORY` and
+  `PUBSUB` (`-script|flush`) were accepted and covered nothing; a user deleted and created again kept the
+  old user's connections logged in; `FT.TAGVALS` returned values of keys the user may not read, and a
+  `UNIQUE` clash named such a key.
+- **Resources:** a client blocked (`BLPOP`, `CDC.READ BLOCK`) that sent more than 1 MB, or that went away during
+  `CDC.READ BLOCK`, kept its connection forever, and could not be killed; so did a subscriber that ended while
+  not reading what was queued for it. TLS handshakes in progress were not bounded by `maxclients`. memcache
+  values were not bounded by `client-query-buffer-limit`, nor replication acknowledgments at all.
+- **Costly commands:** nested JSONPath filters (`$..[?($..[?($..x)])]`) could take hours of CPU; their work
+  is bounded now. `JSON.GET INDENT` could build a reply of hundreds of GB, `SRANDMEMBER`, `HRANDFIELD` and
+  `ZRANDMEMBER` with a negative count one of TBs: both stop at 512 MB.
+- A command that failed midway (`JSON.MGET` with a path over the limits) could leave a partial reply on the
+  connection; only the error is sent now.
+- OpenSSL 3.6.5 (an overlay port in `vcpkg-ports/`), from 3.6.1: the fixes of 3.6.2 to 3.6.5, among them the
+  TLS handshake buffer allocation.
+- The CI workflows' actions are pinned to commits, and Dependabot proposes their updates.
+
 ### Fixed
 
 - `AUTH` and `HELLO` were checked against the user's command permissions: a user without them could not log in

@@ -257,9 +257,13 @@ void cmd_hrandfield(Cmd& c) {
   // n picks, written as they are made: a negative count repeats fields, and
   // copies of them all would double what the reply already holds.
   auto reply = [&](uint64_t n, auto&& pick) {
+    size_t mark = c.r.mark();
     if (!with_values) {
       c.r.array(n);
-      for (uint64_t i = 0; i < n; ++i) c.r.bulk(pick().first);
+      for (uint64_t i = 0; i < n; ++i) {
+        c.r.bulk(pick().first);
+        if (counted_reply_too_large(c, mark)) return;
+      }
     } else if (c.r.proto() >= 3) {
       c.r.array(n);
       for (uint64_t i = 0; i < n; ++i) {
@@ -267,6 +271,7 @@ void cmd_hrandfield(Cmd& c) {
         c.r.array(2);
         c.r.bulk(f);
         c.r.bulk(v);
+        if (counted_reply_too_large(c, mark)) return;
       }
     } else {
       c.r.array(n * 2);
@@ -274,6 +279,7 @@ void cmd_hrandfield(Cmd& c) {
         const auto& [f, v] = pick();
         c.r.bulk(f);
         c.r.bulk(v);
+        if (counted_reply_too_large(c, mark)) return;
       }
     }
   };

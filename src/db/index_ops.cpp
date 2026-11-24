@@ -269,8 +269,7 @@ std::vector<std::pair<std::string, std::optional<std::string>>> Database::json_e
         if (auto value = read_index(put_key)) {
           auto owner = live_unique_owner(def, *value);
           if (owner && *owner != key && *owner != also_mine) {
-            throw IndexConstraintError(
-                std::format("ERR UNIQUE index '{}' already has this value, for key '{}'", def.name, *owner));
+            throw IndexConstraintError::taken(def.name, *owner);
           }
         }
       }

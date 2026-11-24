@@ -27,10 +27,12 @@ RUN git init -q "$VCPKG_ROOT" && cd "$VCPKG_ROOT" \
     && git fetch -q --depth 1 origin "$VCPKG_COMMIT" && git checkout -q FETCH_HEAD \
     && ./bootstrap-vcpkg.sh -disableMetrics
 
-# Dependencies get their own layer: it is rebuilt only when vcpkg.json changes.
+# Dependencies get their own layer: it is rebuilt only when vcpkg.json or an
+# overlay port (vcpkg-ports/) changes.
 FROM toolchain AS deps
 WORKDIR /src
 COPY vcpkg.json .
+COPY vcpkg-ports/ vcpkg-ports/
 # RocksDB translation units are memory hungry; cap parallelism for small Docker VMs.
 ARG BUILD_JOBS=8
 ENV VCPKG_MAX_CONCURRENCY=${BUILD_JOBS}
@@ -60,6 +62,7 @@ RUN cmake --preset linux-asan && cmake --build --preset linux-asan --parallel "$
 FROM toolchain AS tsan-deps
 WORKDIR /src
 COPY vcpkg.json .
+COPY vcpkg-ports/ vcpkg-ports/
 COPY triplets/ triplets/
 ARG BUILD_JOBS=8
 ENV VCPKG_MAX_CONCURRENCY=${BUILD_JOBS}

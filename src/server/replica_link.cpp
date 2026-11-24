@@ -449,6 +449,8 @@ asio::awaitable<void> stream_wal(ServerContext& ctx, Stream& stream, uint64_t re
   }
 }
 
+constexpr size_t kMaxPendingAcks = 64 * 1024;
+
 template <class Stream>
 asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t replica, std::string in,
                                 std::function<bool()> may_hand_over) {
@@ -476,6 +478,13 @@ asio::awaitable<void> read_acks(ServerContext& ctx, Stream& stream, uint64_t rep
       }
     }
     consume(in, pos);
+    // A replica sends only short REPLCONF lines: more pending than this is
+    // not one, and would be parsed again at every read.
+    if (in.size() > kMaxPendingAcks) {
+      log_warn("replication: replica {} sent more than {} bytes that are not acknowledgments: disconnected", replica,
+               kMaxPendingAcks);
+      co_return;
+    }
     if (!co_await read_more(stream, in)) co_return;
   }
 }

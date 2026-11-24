@@ -1456,8 +1456,8 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
   // Users may have changed since this connection last looked: reload its own.
   if (client.user && client.acl_version != ctx.acl.version()) {
     client.acl_version = ctx.acl.version();
-    client.user = ctx.acl.find(client.user->name);
-    if (!client.user) {  // deleted: the connection goes, as in Redis
+    client.user = ctx.acl.reload(*client.user);
+    if (!client.user) {  // deleted (and maybe created again): the connection goes, as in Redis
       client.authenticated = false;
       client.close_after_reply = true;
       return reply.error("ERR the user of this connection was deleted");
@@ -1547,12 +1547,23 @@ void execute_redis_command(ServerContext& ctx, ClientState& client, Args args, R
     client.retry_later = true;
     client.load_key = std::move(e.key);
   } catch (const IndexConstraintError& e) {
-    reply.error(e.what());
+    // What the command replied before failing would leave a partial reply
+    // (an array header without its elements): only the error goes.
+    reply.rewind(mark);
+    // The key that holds the value is named only to a user who may read it.
+    if (!e.owner().empty() && !may_read_key(cmd, e.owner())) {
+      reply.error(std::format("ERR UNIQUE index '{}' already has this value", e.index()));
+    } else {
+      reply.error(e.what());
+    }
   } catch (const JsonPathError& e) {
+    reply.rewind(mark);
     reply.error(e.what());
   } catch (const StorageError& e) {
+    reply.rewind(mark);
     reply.error(std::format("ERR storage error: {}", e.what()));
   } catch (const std::exception& e) {
+    reply.rewind(mark);
     reply.error(std::format("ERR internal error: {}", e.what()));
   }
   // A command that runs again later is counted when it really runs.

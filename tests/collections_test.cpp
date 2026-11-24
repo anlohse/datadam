@@ -322,3 +322,17 @@ TEST_F(CollectionsTest, LargeCollectionsAreNotCachedWhole) {
   EXPECT_TRUE(db_->peek("big", true, [](Database::KeyTxn& t) { EXPECT_TRUE(t.in_memory()); }));
   EXPECT_EQ(run({"SCARD", "big"}), integer(50));
 }
+
+TEST_F(CollectionsTest, CountedRandomRepliesHaveALimit) {
+  // A negative count repeats members: the client chooses the size of a reply
+  // that is built in memory.
+  std::string big(1000, 'm');
+  run({"SADD", "s", big});
+  run({"HSET", "h", big, big});
+  run({"ZADD", "z", "1", big});
+  const std::string too_large = "-ERR the reply would be larger than 512 MB\r\n";
+  EXPECT_EQ(run({"SRANDMEMBER", "s", "-1000000"}), too_large);
+  EXPECT_EQ(run({"HRANDFIELD", "h", "-1000000", "WITHVALUES"}), too_large);
+  EXPECT_EQ(run({"ZRANDMEMBER", "z", "-1000000", "WITHSCORES"}), too_large);
+  EXPECT_EQ(run({"SRANDMEMBER", "s", "-2"}).substr(0, 4), "*2\r\n");
+}

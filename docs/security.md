@@ -72,7 +72,9 @@ Once the `default` user needs a password (or is `off`), every new connection mus
 - Before logging in, a request larger than 16 KB is refused with
   `ERR Protocol error: unauthenticated request too big` and the connection is closed, so an anonymous client
   cannot make the server buffer large requests. After logging in, the limit is `client-query-buffer-limit`
-  (1 GB). Connections past `maxclients` (10,000) are refused, logged in or not.
+  (1 GB), which also bounds a memcache value. Connections past `maxclients` (10,000) are refused, logged in
+  or not; on the TLS port, before the handshake (the connection is closed without a reply), so handshakes in
+  progress cannot go past it either.
 - `AUTH password` logs in as `default`; `AUTH username password` logs in as any user;
   `HELLO 3 AUTH username password` logs in and switches to RESP3 in one step. `HELLO` without `AUTH` on a
   connection that has not logged in replies `NOAUTH HELLO must be called with the client already
@@ -132,7 +134,7 @@ connection must log in as a named user.
 | `allkeys` | Same as `~*`; replaces the other key patterns. |
 | `resetkeys` | Remove all key patterns. |
 | `+command`, `-command` | Allow or deny a command. |
-| `+command\|subcommand`, `-command\|subcommand` | Allow or deny one subcommand. Only for the commands with subcommands: `CONFIG`, `CLIENT`, `ACL`, `CACHE` and `COMMAND`. |
+| `+command\|subcommand`, `-command\|subcommand` | Allow or deny one subcommand. Only for the commands with subcommands: `CONFIG`, `CLIENT`, `ACL`, `CACHE`, `COMMAND`, `SCRIPT`, `FUNCTION`, `SLOWLOG`, `OBJECT`, `MEMORY` and `PUBSUB`. |
 | `+@category`, `-@category` | Allow or deny every command of a [category](#categories). |
 | `allcommands`, `nocommands` | Same as `+@all` and `-@all`. |
 | `&pattern`, `allchannels`, `resetchannels` | Pub/Sub channels the user may publish and subscribe to (glob); `allchannels` is `&*`. New users have none; the `default` user has all. See [Pub/Sub](pubsub.md#permissions). |
@@ -234,13 +236,14 @@ keys) when they are queued: a refusal there makes `EXEC` reply `EXECABORT`. Chan
 Redis checks only the keys a command names, so a user limited to `~app:*` can still discover every key name
 with `KEYS` or `SCAN`. datadam filters the keys that such commands find on their own: `KEYS`, `SCAN`,
 `IDX.QUERY`, `IDX.COUNT`, `IDX.GET`, `FT.SEARCH` and `CDC.READ` return and count only the keys the user may
-read. A user limited to `~app:*` sees only `app:` keys, and `IDX.COUNT` counts only those.
+read. A user limited to `~app:*` sees only `app:` keys, and `IDX.COUNT` counts only those. `FT.TAGVALS`
+returns only the values of keys the user may read, and a `UNIQUE` clash names the key that holds the value
+only to a user who may read it (`ERR UNIQUE index '<name>' already has this value`, without `for key ...`).
 
-Not filtered: `DBSIZE` and `INFO keyspace` (a total), `IDX.INFO` and `FT.INFO` (index statistics),
-`FT.TAGVALS` (the distinct values of a field, across all documents) and `FT.DROPINDEX ... DD`, which deletes
-every document of the index whatever the user's key patterns. `FT.DROPINDEX` is `@admin` and `@dangerous`
-and `INFO` is `@dangerous`, but `DBSIZE`, `IDX.INFO`, `FT.INFO` and `FT.TAGVALS` are plain `@read` commands:
-grant `@index` with that in mind.
+Not filtered: `DBSIZE` and `INFO keyspace` (a total), `IDX.INFO` and `FT.INFO` (index statistics) and
+`FT.DROPINDEX ... DD`, which deletes every document of the index whatever the user's key patterns.
+`FT.DROPINDEX` is `@admin` and `@dangerous` and `INFO` is `@dangerous`, but `DBSIZE`, `IDX.INFO` and
+`FT.INFO` are plain `@read` commands: grant `@index` with that in mind.
 
 ## Changing users at run time
 
@@ -248,7 +251,9 @@ grant `@index` with that in mind.
   command.
 - A user turned `off` cannot log in again, but its open connections stay.
 - Deleting a user (`ACL DELUSER`) closes its connections: their next command replies
-  `ERR the user of this connection was deleted` and the connection is closed.
+  `ERR the user of this connection was deleted` and the connection is closed. This holds even if a user of
+  the same name is created again before that command: it is another user. Deleting and creating a user again
+  is how to log out the connections of a leaked password.
 - Changing a user's passwords does not log out its open connections.
 
 Users live in memory. Run `CONFIG REWRITE` to keep them across restarts (see

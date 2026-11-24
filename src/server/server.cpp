@@ -30,11 +30,14 @@ constexpr size_t kMaxPendingOutput = 1 << 20;
 constexpr size_t kMaxUnauthenticatedRequest = 16 * 1024;
 // A TLS client that has not finished its handshake by then is dropped.
 constexpr auto kTlsHandshakeTimeout = std::chrono::seconds(10);
+// A subscriber's connection that ends has this long to send what is queued.
+constexpr auto kPumpDrainTimeout = std::chrono::seconds(10);
 // When a read waits for its key to be loaded, the keys of up to this many of
 // the requests after it are loaded at the same time.
 constexpr int kMaxPrefetchCommands = 256;
 // While a command is blocked (BLPOP...), requests the client sends are kept
-// up to this much; past it the connection is no longer watched for them.
+// up to this much; past it the connection is closed (it can no longer be
+// watched for its end, nor freed by CLIENT KILL, without reading).
 constexpr size_t kMaxInputWhileBlocked = 1 << 20;
 
 // tcp-keepalive: probes an idle connection after `seconds`, then every
@@ -494,6 +497,9 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
   std::string addr = peer_address(socket);
   std::string laddr = local_address(socket);
   std::string ip = peer_ip(socket);
+  // Before the handshake: handshakes in progress count as clients, and must
+  // not go past maxclients either (the refusal is a closed connection).
+  if (too_many_clients()) co_return;
   asio::ssl::stream<tcp::socket> stream(std::move(socket), tls->ssl());
   asio::steady_timer timer(co_await asio::this_coro::executor, kTlsHandshakeTimeout);
   // `||` waits for the first operation that *succeeds*, so the handshake reports
@@ -511,11 +517,6 @@ asio::awaitable<void> Server::redis_tls_session(tcp::socket socket) {
     co_return;
   }
   ctx_.stats.tls_connections.fetch_add(1, std::memory_order_relaxed);
-  if (too_many_clients()) {
-    std::string reply = std::format("-{}\r\n", kMaxClientsError);
-    co_await asio::async_write(stream, asio::buffer(reply), kUseAwaitable);
-    co_return;
-  }
   if (protected_mode_refuses(ctx_, ip, !verified_peer_cn(stream.native_handle()).empty())) {
     log_debug("TLS client {} refused: protected mode", addr);
     std::string reply = std::format("-{}\r\n", kProtectedModeError);
@@ -580,49 +581,72 @@ asio::awaitable<void> pump_output(Stream& socket, std::shared_ptr<Subscriber> su
   pump->done->cancel();
 }
 
+void set_deadline(asio::steady_timer& timer, int64_t deadline_ms) {
+  if (deadline_ms == std::numeric_limits<int64_t>::max()) {
+    timer.expires_at(asio::steady_timer::time_point::max());
+  } else {
+    timer.expires_at(std::chrono::steady_clock::time_point(std::chrono::milliseconds(deadline_ms)));
+  }
+}
+
 }  // namespace
+
+template <class Stream, class Done>
+asio::awaitable<bool> Server::watch_while_blocked(Stream& socket, std::string& in, asio::steady_timer& timer,
+                                                  const ClientState& client, Done done) {
+  using namespace asio::experimental::awaitable_operators;
+  auto& sock = socket.lowest_layer();
+  while (!done() && steady_time_ms() < client.block_deadline_ms) {
+    // The socket is watched too: a client that goes away while blocked must
+    // not take an element it will never receive, nor hold its connection.
+    auto first = co_await (timer.async_wait(kUseAwaitable) || sock.async_wait(tcp::socket::wait_read, kUseAwaitable));
+    if (first.index() == 0) break;  // woken, or the deadline
+    auto [wait_ec] = std::get<1>(first);
+    asio::error_code ec;
+    if (wait_ec || sock.available(ec) == 0 || ec) co_return false;  // closed (readable with nothing to read)
+    if (!co_await read_more(socket, in, NetInput{&ctx_.stats})) co_return false;
+    if (in.size() > kMaxInputWhileBlocked) {
+      log_info("client {} sent more than {} bytes while blocked: disconnected", client.id, kMaxInputWhileBlocked);
+      co_return false;
+    }
+  }
+  co_return true;
+}
 
 template <class Stream>
 asio::awaitable<bool> Server::wait_for_keys(Stream& socket, std::string& in, std::shared_ptr<asio::steady_timer>& timer,
                                             ClientState& client) {
-  using namespace asio::experimental::awaitable_operators;
   auto ex = co_await asio::this_coro::executor;
   if (!timer) timer = std::make_shared<asio::steady_timer>(ex);
-  if (client.block_deadline_ms == std::numeric_limits<int64_t>::max()) {
-    timer->expires_at(asio::steady_timer::time_point::max());
-  } else {
-    timer->expires_at(std::chrono::steady_clock::time_point(std::chrono::milliseconds(client.block_deadline_ms)));
-  }
+  set_deadline(*timer, client.block_deadline_ms);
   std::shared_ptr<KeyWatch::Waiter> waiter = client.key_waiter;
   // Posted to this connection's strand: it cannot run before the wait starts.
   waiter->set_wake([t = timer, ex] { asio::post(ex, [t] { t->cancel(); }); });
-  auto& sock = socket.lowest_layer();
-  bool alive = true, watch_socket = true;
-  while (!waiter->fired() && steady_time_ms() < client.block_deadline_ms) {
-    if (!watch_socket) {
-      co_await timer->async_wait(kUseAwaitable);
-      break;
-    }
-    // The socket is watched too: a client that goes away while blocked must
-    // not take an element it will never receive.
-    auto first = co_await (timer->async_wait(kUseAwaitable) || sock.async_wait(tcp::socket::wait_read, kUseAwaitable));
-    if (first.index() == 0) break;  // woken, or the deadline
-    auto [wait_ec] = std::get<1>(first);
-    asio::error_code ec;
-    if (wait_ec || sock.available(ec) == 0 || ec) {
-      alive = false;  // closed (readable with nothing to read)
-      break;
-    }
-    if (!co_await read_more(socket, in, NetInput{&ctx_.stats})) {
-      alive = false;
-      break;
-    }
-    if (in.size() > kMaxInputWhileBlocked) watch_socket = false;
-  }
+  bool alive = co_await watch_while_blocked(socket, in, *timer, client, [&] { return waiter->fired(); });
   for (const auto& k : client.wait_keys) ctx_.db.key_watch().unwait(k, waiter.get());
   ctx_.repl.forget_waiter(waiter.get());  // WAIT waits on replication acknowledgments
   client.wait_keys.clear();
   client.key_waiter.reset();
+  co_return alive;
+}
+
+template <class Stream>
+asio::awaitable<bool> Server::wait_for_writes(Stream& socket, std::string& in,
+                                              std::shared_ptr<asio::steady_timer>& timer, ClientState& client) {
+  auto ex = co_await asio::this_coro::executor;
+  if (!timer) timer = std::make_shared<asio::steady_timer>(ex);
+  set_deadline(*timer, client.block_deadline_ms);
+  auto written = std::make_shared<bool>(false);
+  // Posted to this connection's strand, as the wake-up of wait_for_keys.
+  uint64_t id = ctx_.db.storage().on_next_write(client.wait_after_seq, [t = timer, ex, written] {
+    asio::post(ex, [t, written] {
+      *written = true;
+      t->cancel();
+    });
+  });
+  if (id == 0) co_return true;  // already written
+  bool alive = co_await watch_while_blocked(socket, in, *timer, client, [&] { return *written; });
+  ctx_.db.storage().cancel_write_wait(id);
   co_return alive;
 }
 
@@ -650,8 +674,17 @@ asio::awaitable<void> Server::serve_redis(Stream& socket, ClientState& client) {
     ctx_.pubsub.unsubscribe_all(*client.subscriber);
     client.subscriber->close();  // the pump sends what is left, then stops
     if (pump && !pump->finished) {
-      pump->done->expires_at(asio::steady_timer::time_point::max());
+      // Unless the peer does not read it: then the socket is closed, which
+      // ends the pump's write (the connection is no longer in CLIENT LIST,
+      // so nothing else could end it).
+      pump->done->expires_after(kPumpDrainTimeout);
       co_await pump->done->async_wait(kUseAwaitable);
+      if (!pump->finished) {
+        asio::error_code ignored;
+        socket.lowest_layer().close(ignored);
+        pump->done->expires_at(asio::steady_timer::time_point::max());
+        co_await pump->done->async_wait(kUseAwaitable);
+      }
     }
   }
 }
@@ -775,8 +808,9 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
         } else if (blocked && client.wait_for_writes) {
           client.wait_for_writes = false;
           if (client.entry) client.entry->blocked = true;
-          co_await wait_for_write(ctx_.db.storage(), write_timer, client.wait_after_seq, client.block_deadline_ms);
+          bool alive = co_await wait_for_writes(socket, in, write_timer, client);
           if (client.entry) client.entry->blocked = false;
+          if (!alive) co_return;
         } else if (blocked) {
           // The earlier replies are out. Wait for this one's key while the
           // thread serves others; behind it, start loading the other keys of

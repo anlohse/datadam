@@ -90,7 +90,7 @@ MemcacheSession::Status MemcacheSession::process(std::string_view buf, size_t& p
   }
   if (user_ && ctx_.acl.version() != acl_version_) {  // users changed: reload ours
     acl_version_ = ctx_.acl.version();
-    user_ = ctx_.acl.find(user_->name);
+    user_ = ctx_.acl.reload(*user_);
     if (!user_) {
       out += "SERVER_ERROR the user of this connection was deleted\r\n";
       return Status::Close;
@@ -125,7 +125,8 @@ MemcacheSession::Status MemcacheSession::process(std::string_view buf, size_t& p
       bool malformed = !field(2, parse_uint64, &flags) || flags > UINT32_MAX || !field(3, parse_int64, &exptime) ||
                        (is_cas && !field(5, parse_uint64, &cas_unique)) || (tok.size() != base && !noreply) ||
                        !valid_key(tok[1]);
-      if (bytes > kMaxValue) {
+      // client-query-buffer-limit bounds what a connection may hold, as on the Redis port.
+      if (bytes > kMaxValue || bytes > ctx_.query_buffer_limit.load(std::memory_order_relaxed)) {
         out += "SERVER_ERROR object too large for cache\r\n";
         return Status::Close;
       }

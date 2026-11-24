@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <optional>
 #include <stdexcept>
@@ -44,6 +45,18 @@ std::string_view index_state_name(IndexState s);
 class IndexConstraintError : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
+  // A UNIQUE index has the value already, for `owner`.
+  static IndexConstraintError taken(std::string_view index, std::string_view owner) {
+    IndexConstraintError e(std::format("ERR UNIQUE index '{}' already has this value, for key '{}'", index, owner));
+    e.index_ = index;
+    e.owner_ = owner;
+    return e;
+  }
+  const std::string& index() const { return index_; }
+  const std::string& owner() const { return owner_; }  // "" if not a UNIQUE clash
+
+ private:
+  std::string index_, owner_;
 };
 
 struct IndexDef {

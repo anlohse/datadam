@@ -512,20 +512,52 @@ std::optional<JsonPath> JsonPath::parse(std::string_view text, std::string* erro
   return path;
 }
 
+namespace {
+
+// The work one evaluation may do, filters included: each selector applied to
+// a node, and each value found (weighted by its depth, for the path kept with
+// it). Filters run paths again for every candidate ($..[?($..[?($..x)])] is
+// N^3 on N nodes), and the match limit alone does not bound that.
+constexpr uint64_t kMaxJsonPathWork = uint64_t{1} << 25;
+thread_local uint64_t work_done = 0;
+thread_local int runs_inside = 0;  // filters' paths run inside their path's run
+
+}  // namespace
+
 std::vector<Match> JsonPath::run(Json& doc, Json& root, size_t steps) const {
+  struct Nested {
+    Nested() {
+      if (runs_inside++ == 0) work_done = 0;
+    }
+    ~Nested() { --runs_inside; }
+  } nested;
+  auto spend = [&](uint64_t units) {
+    work_done += units;
+    if (work_done > kMaxJsonPathWork) {
+      throw JsonPathError(std::format("ERR path '{}' takes too much work to evaluate", text_));
+    }
+  };
   std::vector<Match> cur{Match{&doc, nullptr, {}, 0, {}}};
   for (size_t s = 0; s < steps && !cur.empty(); ++s) {
     const JsonStep& step = steps_[s];
     std::vector<Match> next;
     std::unordered_set<const Json*> seen;
     for (const Match& m : cur) {
+      size_t before = next.size();
       if (step.descendants) {
         for (const Match& d : self_and_descendants(m, seen)) {
-          for (const auto& sel : step.selectors) apply(sel, d, root, next);
+          for (const auto& sel : step.selectors) {
+            spend(1);
+            apply(sel, d, root, next);
+          }
         }
       } else {
-        for (const auto& sel : step.selectors) apply(sel, m, root, next);
+        for (const auto& sel : step.selectors) {
+          spend(1);
+          apply(sel, m, root, next);
+        }
       }
+      for (size_t i = before; i < next.size(); ++i) spend(next[i].where.size() + 1);
       // Unions of the same index ($[0,0][0,0]...) still double at each step.
       if (next.size() > kMaxJsonPathMatches) throw JsonPathError(std::format("ERR path '{}' selects more than {} values", text_, kMaxJsonPathMatches));
     }
