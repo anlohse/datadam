@@ -32,14 +32,14 @@ on [GitHub](https://github.com/anlohse/datadam/releases):
 
 ```bash
 # Docker: data in a named volume; protected mode is off in the image, so publish the port only where it is safe
-docker run -d --name datadam -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:0.2
+docker run -d --name datadam -p 6379:6379 -v datadam-data:/var/lib/datadam ghcr.io/anlohse/datadam:0.3
 
 # Debian 13 or Ubuntu 24.04 and later: a systemd service, listening on 127.0.0.1, data in /var/lib/datadam
-sudo apt install ./datadam_0.2.0_amd64.deb
+sudo apt install ./datadam_0.3.0_amd64.deb
 systemctl status datadam
 
 # Any x86-64 Linux with glibc 2.39 or later: run in place, data in ./data
-tar -xzf datadam-0.2.0-linux-x86_64.tar.gz && cd datadam-0.2.0-linux-x86_64 && ./datadam datadam.conf
+tar -xzf datadam-0.3.0-linux-x86_64.tar.gz && cd datadam-0.3.0-linux-x86_64 && ./datadam datadam.conf
 ```
 
 `datadam --version` prints the version and the commit. To build from source instead, read on.
@@ -180,7 +180,7 @@ usage: datadam [config-file] [--option value]...
 On a successful start the server logs (to standard error) what it listens on and how the cache is set up:
 
 ```text
-2026-10-23 09:15:02.418 INFO  datadam 0.2.0 (3f2a9c1d8e07) | redis 0.0.0.0:6379 | tls off | memcache 11211 | io threads 8 | data dir ./data | fsync everysec
+2026-10-23 09:15:02.418 INFO  datadam 0.3.0 (3f2a9c1d8e07) | redis 0.0.0.0:6379 | tls off | memcache 11211 | io threads 8 | data dir ./data | fsync everysec
 2026-10-23 09:15:02.418 INFO  cache: max 512mb min 64mb objects <= 4kb | page 64kb | 18 size classes | idle 300000ms age 0ms
 ```
 
@@ -213,7 +213,7 @@ OK
 4) "SP"
 127.0.0.1:6379> INFO server
 # Server
-datadam_version:0.2.0
+datadam_version:0.3.0
 datadam_git_sha1:3f2a9c1d8e07b5a4c6d2e9f1a0b3c5d7e9f1a2b4
 redis_version:7.2.0
 redis_mode:standalone

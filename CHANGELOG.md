@@ -6,6 +6,12 @@ the versions [Semantic Versioning](https://semver.org); what a version promises,
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
+Compatibility with Redis clients, measured by running client libraries' own test suites against datadam: what
+they found is fixed, and the commands they use most that datadam lacked are added. The storage format is
+unchanged (format 1): a 0.2 data directory opens as it is, and 0.2 can open one written by 0.3.
+
 ### Added
 
 - Client libraries' own test suites run against datadam (`tests/clients/`, the Clients workflow: nightly against

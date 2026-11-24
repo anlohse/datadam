@@ -28,12 +28,12 @@ is the protocol level it implements, not its own version.
 ## Compatibility of the data on disk
 
 A data directory records the layout of its data, the **storage format** (`INFO persistence`:
-`storage_format`). Format 1 is the layout of 0.1 and 0.2; a directory without the record (from 0.1) is format 1.
+`storage_format`). Format 1 is the layout of 0.1 to 0.3; a directory without the record (from 0.1) is format 1.
 
 - A datadam opens a directory of its own format or of an older one it can read (upgrading it in place, if a
   release ever needs to, with a line in the log and in the CHANGELOG).
 - A datadam refuses a directory of a newer format and does not touch it:
-  `/var/lib/datadam holds data in storage format 2, written by a newer datadam; datadam 0.2.0 reads formats up to 1`.
+  `/var/lib/datadam holds data in storage format 2, written by a newer datadam; datadam 0.3.0 reads formats up to 1`.
   Downgrading across a format change means restoring the backup taken before the upgrade.
 - A primary and its replicas must run the same minor version: the replication stream carries the primary's
   records as they are. Upgrade the replicas first, then fail over (see [Upgrading](#upgrading)).
@@ -64,8 +64,8 @@ release workflow, from the tagged commit.
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify datadam_0.2.0_amd64.deb --repo anlohse/datadam
-gh attestation verify oci://ghcr.io/anlohse/datadam:0.2.0 --repo anlohse/datadam
+gh attestation verify datadam_0.3.0_amd64.deb --repo anlohse/datadam
+gh attestation verify oci://ghcr.io/anlohse/datadam:0.3.0 --repo anlohse/datadam
 ```
 
 ## Upgrading
