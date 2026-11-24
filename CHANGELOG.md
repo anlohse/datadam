@@ -6,26 +6,6 @@ the versions [Semantic Versioning](https://semver.org); what a version promises,
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-24
-
-Compatibility with Redis clients, measured by running client libraries' own test suites against datadam: what
-they found is fixed, and the commands they use most that datadam lacked are added. The storage format is
-unchanged (format 1): a 0.2 data directory opens as it is, and 0.2 can open one written by 0.3.
-
-### Added
-
-- Client libraries' own test suites run against datadam (`tests/clients/`, the Clients workflow: nightly against
-  `:edge`, on demand, on pull requests labelled `clients`, and before every release): redis-py 8.1.0 (sync and
-  asyncio, RESP2 and RESP3) and node-redlock 5.0.0-beta.2. What datadam does not implement is listed with the
-  reason in `tests/clients/redis-py.skip`; see [docs/clients.md](docs/clients.md).
-- `COMMAND` and `COMMAND INFO` describe every command as Redis 7 does (arity, flags, key positions, ACL
-  categories, key specifications), and `COMMAND GETKEYS` returns a command line's keys.
-- `INFO` takes several sections, has `arch_bits` in `server` and a `cluster` section (`cluster_enabled:0`).
-- `CLIENT LIST` and `CLIENT INFO` show `laddr`; `CLIENT KILL LADDR`.
-- `COPY`, `RANDOMKEY`, `LCS` and `RESET`.
-- `ZUNION`, `ZINTER`, `ZDIFF`, `ZUNIONSTORE`, `ZINTERSTORE`, `ZDIFFSTORE`, `ZINTERCARD`, `ZRANGESTORE` and
-  `ZRANDMEMBER`; the operations across keys take sets too, as in Redis.
-
 ### Security
 
 From a review of the network input, authentication and ACLs, the Lua sandbox and the data commands:
@@ -54,6 +34,26 @@ From a review of the network input, authentication and ACLs, the Lua sandbox and
 - OpenSSL 3.6.5 (an overlay port in `vcpkg-ports/`), from 3.6.1: the fixes of 3.6.2 to 3.6.5, among them the
   TLS handshake buffer allocation.
 - The CI workflows' actions are pinned to commits, and Dependabot proposes their updates.
+
+## [0.3.0] - 2026-11-24
+
+Compatibility with Redis clients, measured by running client libraries' own test suites against datadam: what
+they found is fixed, and the commands they use most that datadam lacked are added. The storage format is
+unchanged (format 1): a 0.2 data directory opens as it is, and 0.2 can open one written by 0.3.
+
+### Added
+
+- Client libraries' own test suites run against datadam (`tests/clients/`, the Clients workflow: nightly against
+  `:edge`, on demand, on pull requests labelled `clients`, and before every release): redis-py 8.1.0 (sync and
+  asyncio, RESP2 and RESP3) and node-redlock 5.0.0-beta.2. What datadam does not implement is listed with the
+  reason in `tests/clients/redis-py.skip`; see [docs/clients.md](docs/clients.md).
+- `COMMAND` and `COMMAND INFO` describe every command as Redis 7 does (arity, flags, key positions, ACL
+  categories, key specifications), and `COMMAND GETKEYS` returns a command line's keys.
+- `INFO` takes several sections, has `arch_bits` in `server` and a `cluster` section (`cluster_enabled:0`).
+- `CLIENT LIST` and `CLIENT INFO` show `laddr`; `CLIENT KILL LADDR`.
+- `COPY`, `RANDOMKEY`, `LCS` and `RESET`.
+- `ZUNION`, `ZINTER`, `ZDIFF`, `ZUNIONSTORE`, `ZINTERSTORE`, `ZDIFFSTORE`, `ZINTERCARD`, `ZRANGESTORE` and
+  `ZRANDMEMBER`; the operations across keys take sets too, as in Redis.
 
 ### Fixed
 
