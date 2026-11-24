@@ -16,6 +16,9 @@ the versions [Semantic Versioning](https://semver.org); what a version promises,
   categories, key specifications), and `COMMAND GETKEYS` returns a command line's keys.
 - `INFO` takes several sections, has `arch_bits` in `server` and a `cluster` section (`cluster_enabled:0`).
 - `CLIENT LIST` and `CLIENT INFO` show `laddr`; `CLIENT KILL LADDR`.
+- `COPY`, `RANDOMKEY`, `LCS` and `RESET`.
+- `ZUNION`, `ZINTER`, `ZDIFF`, `ZUNIONSTORE`, `ZINTERSTORE`, `ZDIFFSTORE`, `ZINTERCARD`, `ZRANGESTORE` and
+  `ZRANDMEMBER`; the operations across keys take sets too, as in Redis.
 
 ### Fixed
 
@@ -28,6 +31,9 @@ the versions [Semantic Versioning](https://semver.org); what a version promises,
 - `PUBSUB NUMSUB` and `SHARDNUMSUB` replied a map in RESP3; they reply a flat array, as Redis does.
 - `CONFIG RESETSTAT` reset only the latency histograms; it now resets the `INFO stats` counters,
   `commandstats` and `errorstats` too.
+- `CLIENT REPLY OFF` and `SKIP` were accepted, but every reply was still sent.
+- `DBSIZE` (RocksDB's estimate of the keys) still counted the keys `FLUSHALL` deleted, until compaction;
+  `FLUSHALL` now compacts the key records before it replies.
 
 ## [0.2.0] - 2026-11-15
 

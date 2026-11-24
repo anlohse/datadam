@@ -811,6 +811,13 @@ void RocksStorage::compact() {
   for (auto* h : handles_) check(db_->CompactRange(co, h, nullptr, nullptr), "compact");
 }
 
+void RocksStorage::compact_meta() {
+  rocksdb::CompactRangeOptions co;
+  co.bottommost_level_compaction = rocksdb::BottommostLevelCompaction::kForce;
+  co.exclusive_manual_compaction = false;  // automatic compactions go on meanwhile
+  check(db_->CompactRange(co, meta_, nullptr, nullptr), "compact");
+}
+
 void RocksStorage::set_block_cache_size(uint64_t bytes) { block_cache_->SetCapacity(bytes); }
 
 void RocksStorage::set_write_buffer_size(uint64_t bytes) {

@@ -16,10 +16,9 @@ certificates of their own, or Sentinel (datadam's own Sentinel suite covers it: 
 ## What the skip list says
 
 [`tests/clients/redis-py.skip`](../tests/clients/redis-py.skip) is also a map of what datadam does not do yet
-that a Redis client may use: Streams, GEO, `SORT`, sorted-set operations across keys (`ZUNION`, `ZINTER`,
-`ZDIFF`...), bitmaps, HyperLogLog, `DUMP`/`RESTORE`, `COPY`, `CLIENT PAUSE`/`TRACKING`, ACL selectors, more
-than one database, and Lua's `cmsgpack`. Each group names its reason; when a feature lands, its group is
-removed and the suite runs those tests again.
+that a Redis client may use: Streams, GEO, `SORT`, bitmaps, HyperLogLog, `DUMP`/`RESTORE`,
+`CLIENT PAUSE`/`TRACKING`, ACL selectors, more than one database, and Lua's `cmsgpack`. Each group names its
+reason; when a feature lands, its group is removed and the suite runs those tests again.
 
 ## What the suites found
 
@@ -36,6 +35,11 @@ Running them first found differences from Redis in commands datadam has, now fix
 - `PUBSUB NUMSUB` replied a map in RESP3, where Redis replies a flat array.
 - `CONFIG RESETSTAT` did not reset `total_commands_processed`, `commandstats` or `errorstats`.
 - `CLIENT LIST` and `CLIENT INFO` had no `laddr`; `CLIENT KILL LADDR` was refused.
+
+Then the skip list was the work list: `COPY`, `RANDOMKEY`, `LCS`, `RESET`, `CLIENT REPLY OFF|SKIP` (accepted,
+but replies still came), the sorted-set operations across keys (`ZUNION`, `ZINTER`, `ZDIFF`, their `STORE`
+forms, `ZINTERCARD`, `ZRANGESTORE`, `ZRANDMEMBER`), and `DBSIZE` after `FLUSHALL` (RocksDB's estimate still
+counted the deleted keys) took 47 tests off it.
 
 ## Running them
 

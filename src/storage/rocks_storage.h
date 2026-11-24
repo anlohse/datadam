@@ -225,6 +225,9 @@ class RocksStorage {
   void checkpoint(const std::string& dir);
   // Compacts every column family (runs the compaction filters over all data).
   void compact();
+  // Compacts the meta column family (the key records) to its last level: what
+  // a range delete removed is dropped, and the key estimate is right again.
+  void compact_meta();
 
   FsyncPolicy fsync_policy() const { return fsync_.load(std::memory_order_relaxed); }
   // Runtime changes (CONFIG SET).

@@ -109,6 +109,13 @@ void cmd_unwatch(Cmd& c) {
 
 }  // namespace
 
+void reset_transaction(ClientState& client) {
+  client.in_multi = false;
+  client.multi_error = false;
+  client.queued.clear();
+  unwatch(client);
+}
+
 bool runs_in_multi(std::string_view name) {
   return name == "exec" || name == "discard" || name == "multi" || name == "watch" || name == "quit" ||
          name == "reset";

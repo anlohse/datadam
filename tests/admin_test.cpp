@@ -590,3 +590,36 @@ TEST_F(AdminTest, InfoSectionsResetstatAndClientAddresses) {
   // CLIENT INFO names the local address too (empty off a server).
   EXPECT_NE(run({"CLIENT", "INFO"}).text.find(" laddr="), std::string::npos);
 }
+
+TEST_F(AdminTest, ResetLeavesTheConnectionAsNew) {
+  EXPECT_EQ(run({"CLIENT", "SETNAME", "before"}).text, "OK");
+  EXPECT_EQ(run({"MULTI"}).text, "OK");
+  EXPECT_EQ(run({"SET", "k", "v"}).text, "QUEUED");
+  EXPECT_EQ(run({"RESET"}).text, "RESET");
+  EXPECT_TRUE(run({"EXEC"}).error);  // MULTI is gone, with what it queued
+  EXPECT_EQ(run({"EXISTS", "k"}).text, "0");
+  EXPECT_EQ(run({"CLIENT", "GETNAME"}).text, "");
+  client_.proto = 3;
+  EXPECT_EQ(run({"RESET"}).text, "RESET");
+  EXPECT_EQ(client_.proto, 2);
+
+  // Logged in again as the default user, or out when it needs a password.
+  EXPECT_EQ(run({"ACL", "SETUSER", "default", ">secret"}).text, "OK");
+  EXPECT_EQ(run({"RESET"}).text, "RESET");  // no login needed for RESET
+  EXPECT_FALSE(client_.authenticated);
+  EXPECT_EQ(run({"GET", "k"}).text.rfind("NOAUTH", 0), 0u);
+  EXPECT_EQ(run({"RESET"}).text, "RESET");
+  EXPECT_EQ(run({"AUTH", "secret"}).text, "OK");
+  EXPECT_EQ(run({"GET", "k"}).text, "");
+}
+
+TEST_F(AdminTest, ClientReplyModes) {
+  EXPECT_EQ(run({"CLIENT", "REPLY", "SKIP"}).text, "OK");  // dropped by the connection
+  EXPECT_EQ(client_.reply_skip, 2);
+  EXPECT_EQ(run({"CLIENT", "REPLY", "OFF"}).text, "OK");
+  EXPECT_TRUE(client_.reply_off);
+  EXPECT_EQ(run({"CLIENT", "REPLY", "ON"}).text, "OK");
+  EXPECT_FALSE(client_.reply_off);
+  EXPECT_EQ(client_.reply_skip, 0);
+  EXPECT_TRUE(run({"CLIENT", "REPLY", "MAYBE"}).error);
+}

@@ -335,7 +335,16 @@ class Database {
   // nothing (and returns false) when any of the keys exists.
   bool mset(const std::vector<std::pair<std::string_view, std::string_view>>& kvs, bool only_if_none_exist);
   RenameResult rename(std::string_view src, std::string_view dst, bool only_if_target_missing);
+  // COPY: dst gets src's value and TTL (a collection, its elements, under a
+  // version of its own); src is left as it is. Without replace, an existing
+  // dst is TargetExists. Index entries follow, as for any write to dst.
+  RenameResult copy(std::string_view src, std::string_view dst, bool replace);
+  // RANDOMKEY: a key that is not expired, picked at a random place of the
+  // key order (not uniform); nullopt when there is none.
+  std::optional<std::string> random_key();
 
+  // Removes every key. Returns once the meta column family is compacted, so
+  // DBSIZE (RocksDB's estimate of its keys) counts from zero again.
   void flush_all();
   std::vector<std::string> keys(std::string_view pattern);
 
@@ -469,6 +478,9 @@ class Database {
   void note_any_key();
 
  private:
+  // RENAME (keep_source false) and COPY (true): dst gets src's value.
+  RenameResult transfer(std::string_view src, std::string_view dst, bool only_if_target_missing, bool keep_source);
+
   // Unlocks a stripe on destruction; empty when a write batch keeps the stripe.
   class KeyGuard {
    public:

@@ -124,6 +124,10 @@ commands() {
   tc "HELLO 4 rejected"         "NOPROTO" HELLO 4
   t  "RESP3 GET nil"            "" -3 GET no-such-key
   t  "QUIT"                     "OK" QUIT
+  t  "RESET"                    "RESET" RESET
+  tpc "RESET leaves MULTI"      "ERR EXEC without MULTI" <<< $'MULTI\nSET a 1\nRESET\nEXEC'
+  tp "RESET clears the name"    $'OK\nRESET' <<< $'CLIENT SETNAME before-reset\nRESET\nCLIENT GETNAME'
+  tpc "RESET goes back to RESP2" "resp=2" <<< $'HELLO 3\nRESET\nCLIENT INFO'
   tc "unknown command"          "ERR unknown command 'NOSUCH'" NOSUCH a b
   tc "wrong arity"              "ERR wrong number of arguments for 'get' command" GET
   t  "FLUSHALL"                 "OK" FLUSHALL
@@ -164,6 +168,14 @@ commands() {
   t  "GET binary/utf-8"         "ação ✓" GET "chave com espaço"
 
   section "other string commands"
+  t  "MSET for LCS"             "OK" MSET lcs1 ohmytext lcs2 mynewtext
+  t  "LCS"                      "mytext" LCS lcs1 lcs2
+  t  "LCS LEN"                  "6" LCS lcs1 lcs2 LEN
+  t  "LCS IDX"                  $'matches\n4\n7\n5\n8\n2\n3\n0\n1\nlen\n6' LCS lcs1 lcs2 IDX
+  t  "LCS IDX MINMATCHLEN"      $'matches\n4\n7\n5\n8\n4\nlen\n6' LCS lcs1 lcs2 IDX MINMATCHLEN 3 WITHMATCHLEN
+  tc "LCS LEN and IDX"          "ERR If you want both the length and indexes" LCS lcs1 lcs2 LEN IDX
+  t  "LCS missing key"          "" LCS lcs1 nope
+  t  "LCS missing key LEN"      "0" LCS lcs1 nope LEN
   t  "SETNX existing"           "0" SETNX k x
   t  "SETNX new"                "1" SETNX nx-key x
   t  "SETEX"                    "OK" SETEX sx 100 v
@@ -280,15 +292,28 @@ commands() {
   t  "RENAMENX target exists"   "0" RENAMENX renamed ap
   t  "RENAMENX"                 "1" RENAMENX renamed e
   t  "RENAME onto itself"       "OK" RENAME e e
+  t  "COPY"                     "1" COPY e e-copy
+  t  "GET copy"                 "5" GET e-copy
+  t  "COPY keeps the source"    "5" GET e
+  tx "COPY keeps TTL"           '^(99|100)$' TTL e-copy
+  t  "COPY target exists"       "0" COPY e e-copy
+  t  "COPY REPLACE"             "1" COPY ap e-copy REPLACE
+  t  "COPY REPLACE takes TTL"   "-1" TTL e-copy
+  t  "COPY DB 0"                "1" COPY e e-copy2 DB 0
+  t  "COPY missing"             "0" COPY nope x
+  tc "COPY onto itself"         "ERR source and destination objects are the same" COPY e e
+  tc "COPY DB 1"                "ERR DB index is out of range" COPY e x DB 1
   t  "FLUSHALL before KEYS"     "OK" FLUSHALL
+  t  "RANDOMKEY none"           "" RANDOMKEY
   t  "MSET for KEYS"            "OK" MSET user:1 a user:2 b user:10 c order:1 d
+  tx "RANDOMKEY"                '^(user:1|user:2|user:10|order:1)$' RANDOMKEY
   ts "KEYS prefix"              $'user:1\nuser:10\nuser:2' KEYS "user:*"
   ts "KEYS suffix"              $'order:1\nuser:1' KEYS "*:1"
   ts "KEYS ?"                   $'user:1\nuser:2' KEYS "user:?"
   ts "KEYS [set]"               $'user:1\nuser:2' KEYS "user:[12]"
   ts "KEYS [^set]"              $'user:2' KEYS "user:[^1]"
   t  "KEYS no match"            "" KEYS "nothing*"
-  tx "DBSIZE"                   '^[0-9]+$' DBSIZE
+  t  "DBSIZE after FLUSHALL"    "4" DBSIZE
 
   section "cache and large values"
   t  "SET small"                "OK" SET c1 small-value
@@ -419,6 +444,10 @@ EOF
   t  "SMOVE"                    "1" SMOVE s2 s e
   t  "SMOVE missing member"     "0" SMOVE s2 s nope
   t  "SISMEMBER after SMOVE"    "1" SISMEMBER s e
+  t  "COPY a set"               "1" COPY s s-copy
+  t  "SADD to the copy"         "1" SADD s-copy only-in-copy
+  t  "the source is apart"      "0" SISMEMBER s only-in-copy
+  ts "SMEMBERS of the copy"     $'c\nd\ne\nonly-in-copy' SMEMBERS s-copy
   tx "SRANDMEMBER"              '^(c|d|e)$' SRANDMEMBER s
   ts "SRANDMEMBER count"        $'c\nd\ne' SRANDMEMBER s 10
   tx "SRANDMEMBER negative"     $'^([cde]\n){4}[cde]$' SRANDMEMBER s -5
@@ -490,6 +519,42 @@ EOF
   t  "ZRANGE infinities"        $'bottom\n-inf\ntop\ninf' ZRANGE zi 0 -1 WITHSCORES
   t  "TYPE zset"                "zset" TYPE z
   tc "ZADD on string"           "WRONGTYPE" ZADD plain 1 a
+  t  "ZADD za"                  "3" ZADD za 1 a1 2 a2 1 a3
+  t  "ZADD zb"                  "3" ZADD zb 2 a1 2 a2 2 a3
+  t  "ZADD zc"                  "3" ZADD zc 6 a1 5 a3 4 a4
+  t  "ZINTER"                   $'a3\na1' ZINTER 3 za zb zc
+  t  "ZINTER WITHSCORES"        $'a3\n8\na1\n9' ZINTER 3 za zb zc WITHSCORES
+  t  "ZINTER AGGREGATE MAX"     $'a3\n5\na1\n6' ZINTER 3 za zb zc AGGREGATE MAX WITHSCORES
+  t  "ZINTER AGGREGATE MIN"     $'a1\n1\na3\n1' ZINTER 3 za zb zc AGGREGATE min WITHSCORES
+  t  "ZUNION"                   $'a2\n4\na4\n4\na3\n8\na1\n9' ZUNION 3 za zb zc WITHSCORES
+  t  "ZUNION WEIGHTS"           $'a1\n8\na3\n8\na2\n10' ZUNION 2 za zb WEIGHTS 2 3 WITHSCORES
+  t  "ZDIFF"                    "a4" ZDIFF 2 zc za
+  t  "ZDIFF WITHSCORES"         $'a4\n4' ZDIFF 2 zc za WITHSCORES
+  t  "ZINTERCARD"               "2" ZINTERCARD 3 za zb zc
+  t  "ZINTERCARD LIMIT"         "1" ZINTERCARD 3 za zb zc LIMIT 1
+  t  "ZUNIONSTORE"              "3" ZUNIONSTORE zd 2 za zb
+  t  "ZUNIONSTORE result"       $'a1\n3\na3\n3\na2\n4' ZRANGE zd 0 -1 WITHSCORES
+  t  "SADD for ZINTERSTORE"     "2" SADD zset-set a1 a4
+  t  "ZINTERSTORE with a set"   "2" ZINTERSTORE zd 2 zc zset-set
+  t  "ZINTERSTORE result"       $'a4\n5\na1\n7' ZRANGE zd 0 -1 WITHSCORES
+  t  "ZDIFFSTORE empty"         "0" ZDIFFSTORE zd 2 za za
+  t  "empty result deletes it"  "0" EXISTS zd
+  tc "ZDIFF WEIGHTS"            "ERR syntax error" ZDIFF 2 za zb WEIGHTS 1 2
+  tc "ZUNIONSTORE WITHSCORES"   "ERR syntax error" ZUNIONSTORE zd 1 za WITHSCORES
+  tc "ZUNION no keys"           "ERR at least 1 input key is needed" ZUNION 0 za
+  tc "ZINTER over a string"     "WRONGTYPE" ZINTER 2 za plain
+  t  "ZRANGESTORE"              "2" ZRANGESTORE zd za 0 1
+  t  "ZRANGESTORE result"       $'a1\na3' ZRANGE zd 0 -1
+  t  "ZRANGESTORE BYSCORE REV"  "1" ZRANGESTORE zd za 2 1 BYSCORE REV LIMIT 0 1
+  t  "ZRANGESTORE result 2"     "a2" ZRANGE zd 0 -1
+  t  "ZRANGESTORE missing src"  "0" ZRANGESTORE zd nozset 0 -1
+  t  "ZRANGESTORE deletes dst"  "0" EXISTS zd
+  tc "ZRANGESTORE WITHSCORES"   "ERR syntax error" ZRANGESTORE zd za 0 1 WITHSCORES
+  tx "ZRANDMEMBER"              '^a[123]$' ZRANDMEMBER za
+  ts "ZRANDMEMBER count"        $'a1\na2\na3' ZRANDMEMBER za 10
+  tx "ZRANDMEMBER negative"     $'^(a[123]\n){4}a[123]$' ZRANDMEMBER za -5
+  tx "ZRANDMEMBER WITHSCORES"   $'^a[123]\n[12]$' ZRANDMEMBER za 1 WITHSCORES
+  t  "ZRANDMEMBER missing"      "" ZRANDMEMBER nozset
 
   section "list"
   t  "RPUSH"                    "3" RPUSH l a b c

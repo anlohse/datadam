@@ -289,7 +289,8 @@ AclDenial acl_check(const AclUser& user, std::string_view name, const CommandSpe
   // Anyone logged in may ask who they are and what the categories are, and log
   // in again as someone else: AUTH and HELLO are no-auth commands, which Redis
   // never checks against the user's command permissions.
-  bool self_service = (name == "acl" && (sub == "whoami" || sub == "cat")) || name == "auth" || name == "hello";
+  bool self_service = (name == "acl" && (sub == "whoami" || sub == "cat")) || name == "auth" || name == "hello" ||
+                      name == "reset";
   if (!sub.empty() && !known_subcommand(name, sub)) return {};  // the command refuses it as unknown
   if (!self_service && !user.may_run(name, spec, sub)) {
     std::string object = sub.empty() ? std::string(name) : std::format("{}|{}", name, sub);

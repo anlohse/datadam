@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <random>
 
 #include "db/change_feed.h"
 #include "storage/data_keys.h"
@@ -1233,6 +1234,15 @@ bool Database::mset(const std::vector<std::pair<std::string_view, std::string_vi
 }
 
 Database::RenameResult Database::rename(std::string_view src, std::string_view dst, bool only_if_target_missing) {
+  return transfer(src, dst, only_if_target_missing, false);
+}
+
+Database::RenameResult Database::copy(std::string_view src, std::string_view dst, bool replace) {
+  return transfer(src, dst, !replace, true);
+}
+
+Database::RenameResult Database::transfer(std::string_view src, std::string_view dst, bool only_if_target_missing,
+                                          bool keep_source) {
   commit_active_batch();
   auto guard = exec_holds_locks() ? KeyLocks::Multi(locks_, {})
                                   : locks_.lock_keys(std::array<std::string_view, 2>{src, dst});
@@ -1245,9 +1255,9 @@ Database::RenameResult Database::rename(std::string_view src, std::string_view d
 
   auto batch = storage_.batch();
 
-  // Index entries move with a hash: src's go away, dst gets the same values.
+  // Index entries follow a hash: (on a rename) src's go away, dst gets the same values.
   std::vector<std::unique_lock<std::mutex>> unique_locks;
-  std::optional<uint64_t> renamed_version;  // the version the moved hash gets
+  std::optional<uint64_t> new_version;  // the version dst's hash gets
   if (indexes_->any()) {
     auto src_m = rec->type == ValueType::Hash ? collection_meta(rec) : std::nullopt;
     auto dst_m = old_dst && old_dst->type == ValueType::Hash ? collection_meta(old_dst) : std::nullopt;
@@ -1255,33 +1265,36 @@ Database::RenameResult Database::rename(std::string_view src, std::string_view d
     for (const auto& index : dst_indexes) {
       if (index->def.unique) unique_locks.emplace_back(index->unique_mu);
     }
-    if (src_m) drop_index_entries(src, *src_m, &batch);
+    if (src_m && !keep_source) drop_index_entries(src, *src_m, &batch);
     if (dst_m) drop_index_entries(dst, *dst_m, &batch);
-    // A document's entries move to the new name.
+    // A document's entries go to the new name (a copy's are new ones: a
+    // UNIQUE value of src clashes with src).
     JsonEntries src_json = json_entries(src, rec), dst_json = json_entries(dst, old_dst);
     auto apply = [&](std::vector<std::pair<std::string, std::optional<std::string>>> changes) {
       for (auto& [entry, value] : changes) value ? batch.put(Cf::Index, entry, *value) : batch.del(Cf::Index, entry);
     };
-    if (!src_json.indexes.empty()) apply(json_entry_changes(src, src_json, src_json.gone()));
-    if (!dst_json.indexes.empty()) apply(json_entry_changes(dst, dst_json, json_entries(dst, rec), src));
+    if (!keep_source && !src_json.indexes.empty()) apply(json_entry_changes(src, src_json, src_json.gone()));
+    if (!dst_json.indexes.empty()) {
+      apply(json_entry_changes(dst, dst_json, json_entries(dst, rec), keep_source ? std::string_view() : src));
+    }
     if (src_m) {
-      uint64_t moved_version = next_version();
+      uint64_t version = next_version();
       for (const auto& index : dst_indexes) {
         for (const auto& t : stored_tuples(index->def, src, *src_m)) {
           std::string entry = index->def.entry_key(t, dst);
           if (index->def.unique) {
             if (auto value = read_index(entry)) {
               auto owner = live_unique_owner(index->def, *value);
-              if (owner && *owner != src && *owner != dst) {
+              if (owner && *owner != dst && (keep_source || *owner != src)) {
                 throw IndexConstraintError(std::format(
                     "ERR UNIQUE index '{}' already has this value, for key '{}'", index->def.name, *owner));
               }
             }
           }
-          batch.put(Cf::Index, entry, index->def.entry_value(moved_version, rec->expire_at_ms, dst));
+          batch.put(Cf::Index, entry, index->def.entry_value(version, rec->expire_at_ms, dst));
         }
       }
-      renamed_version = moved_version;
+      new_version = version;
     }
   }
 
@@ -1292,7 +1305,7 @@ Database::RenameResult Database::rename(std::string_view src, std::string_view d
     // Element keys contain the user key, so they are copied under the new name.
     std::string from = data_prefix(src, m->version), to = data_prefix(src, m->version + 1);
     CollectionMeta moved = *m;
-    moved.version = renamed_version ? *renamed_version : next_version();
+    moved.version = new_version ? *new_version : next_version();
     std::string prefix = data_prefix(dst, moved.version);
     auto cursor = storage_.cursor(Cf::Data, from, to, false);
     for (cursor->seek_first(); cursor->valid(); cursor->next()) {
@@ -1301,31 +1314,78 @@ Database::RenameResult Database::rename(std::string_view src, std::string_view d
       batch.put(Cf::Data, k, cursor->value());
     }
     cursor->check_status();
-    batch.delete_range(Cf::Data, from, to);
+    if (!keep_source) batch.delete_range(Cf::Data, from, to);
     rec->value = encode_collection_meta(moved);
   }
   rec->cas = next_cas();
-  key_watch_->touched(src);
+  if (!keep_source) key_watch_->touched(src);
   key_watch_->touched(dst);
   batch.put(dst, encode_record(rec->view()));
-  batch.del(src);
+  if (!keep_source) batch.del(src);
   if (change_notes_) {
     std::string note = change_note(unix_time_ms());
     if (auto m = collection_meta(rec)) add_change_note_type(note, data_prefix(dst, m->version), rec->type);
     batch.put_log_data(note);
   }
   storage_.write(batch);
-  cache_.erase(src);
+  if (!keep_source) cache_.erase(src);
   cache_store(dst, rec->view(), false);
   return RenameResult::Ok;
 }
 
 void Database::flush_all() {
   commit_active_batch();
-  auto guard = exec_holds_locks() ? KeyLocks::Multi(locks_, {}) : locks_.lock_all();
-  key_watch_->touched_all();
-  storage_.delete_all(change_notes_ ? change_note(unix_time_ms()) : std::string());
-  cache_.clear();
+  {
+    auto guard = exec_holds_locks() ? KeyLocks::Multi(locks_, {}) : locks_.lock_all();
+    key_watch_->touched_all();
+    storage_.delete_all(change_notes_ ? change_note(unix_time_ms()) : std::string());
+    cache_.clear();
+  }
+  // RocksDB's key estimate does not see range deletes: until a compaction
+  // drops the deleted keys, DBSIZE would still count them. The keys are
+  // already gone, so other clients need not wait for this.
+  storage_.compact_meta();
+}
+
+std::optional<std::string> Database::random_key() {
+  commit_active_batch();  // the scan reads RocksDB directly
+  // A random place between the first key and the last one: where the two
+  // first differ, a random byte between theirs, then random bytes.
+  std::string first, last;
+  {
+    auto cursor = storage_.cursor(Cf::Meta, "", "", false);
+    cursor->seek_first();
+    if (!cursor->valid()) {
+      cursor->check_status();
+      return std::nullopt;
+    }
+    first.assign(cursor->key());
+    cursor->seek_last();
+    if (cursor->valid()) last.assign(cursor->key());
+    cursor->check_status();
+  }
+  thread_local std::mt19937_64 rng{std::random_device{}()};
+  std::string at;
+  size_t i = 0;
+  while (i < first.size() && i < last.size() && first[i] == last[i]) at.push_back(first[i++]);
+  if (i < last.size()) {
+    auto lo = static_cast<unsigned char>(i < first.size() ? first[i] : 0);
+    auto hi = static_cast<unsigned char>(last[i]);
+    at.push_back(static_cast<char>(lo + rng() % (hi - lo + 1u)));
+    for (int n = 0; n < 8; ++n) at.push_back(static_cast<char>(rng() & 0xff));
+  }
+  // The first live key from there on, else from the start.
+  auto live = [](std::string_view, const RecordView&) { return true; };
+  for (int pass = 0; pass < 2; ++pass) {
+    std::string after = pass == 0 ? at : std::string();
+    for (;;) {
+      KeyScan s = scan_keys(after, "", 256, live);
+      if (!s.keys.empty()) return std::move(s.keys.front());
+      if (!s.next) break;
+      after = std::move(*s.next);
+    }
+  }
+  return std::nullopt;
 }
 
 std::vector<std::string> Database::keys(std::string_view pattern) {

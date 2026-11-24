@@ -140,6 +140,7 @@ class ClientRegistry {
 class Monitors {
  public:
   void add(uint64_t client_id, std::shared_ptr<Subscriber> s);
+  void remove(uint64_t client_id);  // RESET
   bool any() const { return count_.load(std::memory_order_relaxed) > 0; }
   // "+<unix seconds>.<microseconds> [0 <addr>] "arg" ..." to every monitor but the sender.
   void feed(uint64_t from_id, std::string_view addr, std::span<const std::string_view> args);

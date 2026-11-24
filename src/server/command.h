@@ -131,6 +131,9 @@ CommandList script_commands();
 bool allowed_while_script_busy(std::string_view name, Args args);
 CommandList admin_commands();
 
+// Leaves MULTI (dropping what was queued) and forgets the WATCHed keys (RESET).
+void reset_transaction(ClientState& client);
+
 // Commands that run, instead of being queued, between MULTI and EXEC.
 bool runs_in_multi(std::string_view name);
 

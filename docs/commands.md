@@ -80,6 +80,7 @@ Errors that any command can return:
 | PING | `PING [message]` | `PONG`, or the message as a bulk string. |
 | ECHO | `ECHO message` | |
 | QUIT | `QUIT` | Replies `OK` and closes the connection. |
+| RESET | `RESET` | The connection as it was when it opened: leaves `MULTI` (dropping what was queued), `WATCH`, every subscription and `MONITOR`; RESP2, no name, `CLIENT REPLY ON`; logged in as `default` again when it needs no password, else logged out. Replies `RESET`; needs no login. |
 | SELECT | `SELECT index` | Only `0` is accepted; any other index replies `ERR DB index is out of range`. |
 | AUTH | `AUTH [username] password` | Logs in as `username` (default: `default`). See [Security](security.md). |
 | HELLO | `HELLO [protover [AUTH username password] [SETNAME clientname]]` | `protover` is 2 or 3 (`NOPROTO unsupported protocol version` otherwise). Replies with a map: `server` `datadam`, `version` `7.2.0`, `proto`, `id`, `mode` `standalone`, `role` `master` (also on a replica), `modules` (empty). |
@@ -91,7 +92,8 @@ Errors that any command can return:
 | | `CLIENT LIST [TYPE normal\|pubsub\|replica\|master] [ID id ...]` | Every Redis connection, one line each: `id addr laddr name age idle flags db sub psub ssub multi cmd user resp lib-name lib-ver tls`. |
 | | `CLIENT KILL ip:port` | Closes that connection; `OK` or `ERR No such client`. |
 | | `CLIENT KILL [ID id] [ADDR ip:port] [LADDR ip:port] [USER name] [TYPE type] [MAXAGE seconds] [SKIPME yes\|no]` | Closes every connection that matches all the filters (not this one, unless `SKIPME no`); replies how many. |
-| | `CLIENT NO-EVICT\|NO-TOUCH\|REPLY arg` | Accepted for client-library compatibility; reply `OK` and have no effect (`CLIENT REPLY OFF` does not silence replies). |
+| | `CLIENT REPLY ON\|OFF\|SKIP` | `OFF`: no more replies, its own included, until `CLIENT REPLY ON`; `SKIP`: no reply to it nor to the next command. Pub/Sub messages and `SUBSCRIBE` confirmations still arrive. |
+| | `CLIENT NO-EVICT\|NO-TOUCH arg` | Accepted for client-library compatibility; reply `OK` and have no effect. |
 | COMMAND | `COMMAND [COUNT \| LIST \| DOCS \| INFO [name ...] \| GETKEYS command [arg ...]]` | `COMMAND` and `COMMAND INFO` describe each command as Redis 7 does: name, arity, flags (`readonly`, `write`, `fast`, `admin`, `pubsub`, `blocking`, `no_auth`, `movablekeys`), the legacy first/last/step key positions, ACL categories, tips (none) and key specifications; `INFO` without names describes every command, an unknown name gets a nil. `GETKEYS` returns the key arguments of a command line (empty when its keys move and there are none; an error for a command without keys). `COUNT` and `LIST` are exact; `DOCS` returns an empty map. |
 | CONFIG | `CONFIG GET pattern [pattern ...]` | Glob patterns, case-insensitive. Besides datadam's own options it answers `databases` (1), `save` (empty), `appendonly` (`no`) and `maxmemory` (the value of `cache-max-memory`). |
 | | `CONFIG SET parameter value [parameter value ...]` | All pairs are validated first; either all apply or none. Only some options can change at run time; see [Configuration](configuration.md). Others reply `can't set immutable config`. |
@@ -99,9 +101,9 @@ Errors that any command can return:
 | | `CONFIG RESETSTAT` | Resets the counters Redis resets: `INFO stats` (commands, connections, network bytes, errors, ACL denials), `commandstats`, `errorstats`, and the `INFO latency` histograms. |
 | INFO | `INFO [section ...]` | Sections: `server`, `clients`, `stats`, `cache` (alias `memory`), `persistence`, `latency`, `replication`, `cluster` (`cluster_enabled:0`), `keyspace`; none, `all`, `everything` or `default` gives all. Several sections give each once. See [Operations](operations.md). |
 | TIME | `TIME` | Unix seconds and microseconds. |
-| DBSIZE | `DBSIZE` | **An estimate** (RocksDB's `rocksdb.estimate-num-keys`); it can count expired and deleted keys that compaction has not removed yet. `INFO keyspace` shows the same number, with `expires=0,avg_ttl=0`. |
+| DBSIZE | `DBSIZE` | **An estimate** (RocksDB's `rocksdb.estimate-num-keys`); it can count expired keys, overwritten keys and deleted ones that compaction has not removed yet. It starts from 0 again after `FLUSHALL`. `INFO keyspace` shows the same number, with `expires=0,avg_ttl=0`. |
 | FLUSHDB | `FLUSHDB [ASYNC\|SYNC]` | Same as `FLUSHALL`. |
-| FLUSHALL | `FLUSHALL [ASYNC\|SYNC]` | Deletes every key and every index entry, always synchronously. Index definitions remain and keep being maintained. |
+| FLUSHALL | `FLUSHALL [ASYNC\|SYNC]` | Deletes every key and every index entry, always synchronously. Index definitions remain and keep being maintained. Replies once the key records are compacted away (other clients do not wait for that), so `DBSIZE` counts from 0. |
 | SAVE | `SAVE` | Commits pending writes and flushes the RocksDB memtables to SST files. With the default write path every write is already in the WAL; this only shortens recovery. |
 | BGSAVE | `BGSAVE [SCHEDULE]` | With `backup-dir` set, writes a backup (a RocksDB checkpoint) there in the background, keeping the newest `backup-keep`. Without it, the same as `SAVE`. Replies `Background saving started`. See [Operations](operations.md#backups). |
 | BACKUP | `BACKUP path` | datadam's own: a consistent copy of the database at `path` (which must not exist), made while the server runs; replies when it is complete. |
@@ -135,6 +137,7 @@ messages suggest them.
 | STRLEN | `STRLEN key` | |
 | GETRANGE | `GETRANGE key start end` | Negative offsets count from the end. |
 | SUBSTR | `SUBSTR key start end` | Alias of `GETRANGE`. |
+| LCS | `LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN]` | The longest common subsequence of two strings (a missing key is an empty string): the subsequence, its length (`LEN`), or (`IDX`) a map of `matches` (ranges in each string, last first, of at least `MINMATCHLEN` bytes, with their length if `WITHMATCHLEN`) and `len`. Uses (len1+1) x (len2+1) 4-byte cells, up to 512 MB. |
 | SETRANGE | `SETRANGE key offset value` | Pads with zero bytes. An empty value does not create the key. |
 | INCR, DECR | `INCR key`, `DECR key` | 64-bit signed. `ERR increment or decrement would overflow` on overflow. |
 | INCRBY, DECRBY | `INCRBY key increment`, `DECRBY key decrement` | |
@@ -160,6 +163,8 @@ written over the memcache port are ordinary strings here; see [memcache](memcach
 | PERSIST | `PERSIST key` | |
 | RENAME | `RENAME key newkey` | Keeps the TTL. Overwrites `newkey` whatever its type. `ERR no such key` when `key` is missing. |
 | RENAMENX | `RENAMENX key newkey` | 0 if `newkey` exists. |
+| COPY | `COPY source destination [DB 0] [REPLACE]` | Copies the value and its TTL (a collection's elements are copied, O(N)); 0 if `source` is missing or `destination` exists without `REPLACE`. Index entries are written for the copy; a `UNIQUE` value clashes with the source. `DB` takes only 0. |
+| RANDOMKEY | `RANDOMKEY` | A key that is not expired, nil if there is none. Picked at a random point of the key order, so not uniformly. For an ACL user with key patterns, a key it may read. |
 | TOUCH | `TOUCH key [key ...]` | How many of the keys exist; marks them as just used in the object cache. |
 | OBJECT | `OBJECT ENCODING key` | The name Redis would use for such a value: `int`, `embstr` or `raw` for strings (by content and size), `listpack` for collections of up to 128 elements, else `hashtable` (hash, set), `skiplist` (zset) or `quicklist` (list); `raw` for JSON. Nil for a missing key. datadam's own storage is the same for all of them (see [Storage format](dev/storage-format.md)). |
 | | `OBJECT IDLETIME key` | Seconds since the cached copy was last read; 0 when the key is not in the object cache. |
@@ -271,6 +276,12 @@ Writes to a hash keep its TTL. Hashes can be indexed by [secondary indexes](seco
 | ZREMRANGEBYLEX | `ZREMRANGEBYLEX key min max` | |
 | ZPOPMIN, ZPOPMAX | `ZPOPMIN key [count]` (same for `ZPOPMAX`) | |
 | ZMPOP | `ZMPOP numkeys key [key ...] MIN\|MAX [COUNT count]` | From the first sorted set that has members: `[key, [[member, score] ...]]`; nil if none has. |
+| ZUNION, ZINTER | `ZUNION numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM\|MIN\|MAX] [WITHSCORES]` (same for `ZINTER`) | Scores are multiplied by the key's weight, then summed (or the least, the greatest) for members in several. A set counts as a sorted set whose scores are 1. |
+| ZDIFF | `ZDIFF numkeys key [key ...] [WITHSCORES]` | The members of the first that no other has, with their scores. |
+| ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE | `ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS ...] [AGGREGATE ...]` (`ZDIFFSTORE` without the options) | Stores the result (overwriting `destination` whatever its type; an empty result deletes it) and replies its size. |
+| ZINTERCARD | `ZINTERCARD numkeys key [key ...] [LIMIT limit]` | Computes the full intersection, then applies `LIMIT`. |
+| ZRANGESTORE | `ZRANGESTORE destination source min max [BYSCORE\|BYLEX] [REV] [LIMIT offset count]` | `ZRANGE` whose result is stored; replies its size. |
+| ZRANDMEMBER | `ZRANDMEMBER key [count [WITHSCORES]]` | Distinct members for a positive count, possibly repeated ones for a negative count (at most 10^9). |
 | BZPOPMIN, BZPOPMAX | `BZPOPMIN key [key ...] timeout` (same for `BZPOPMAX`) | `[key, member, score]`; waits if every set is empty. See [Blocking commands](#blocking-commands). |
 | BZMPOP | `BZMPOP timeout numkeys key [key ...] MIN\|MAX [COUNT count]` | `ZMPOP` that waits. |
 | ZSCAN | see [SCAN family](#scan-family) | |
@@ -483,7 +494,7 @@ Users, per-command and per-key permissions, and the refusal log. See [Security](
 
 ## Differences from Redis at a glance
 
-- `DBSIZE` and `INFO keyspace` are estimates; `SELECT` accepts only database 0.
+- `DBSIZE` and `INFO keyspace` are estimates (exact again after `FLUSHALL`); `SELECT` accepts only database 0.
 - `SCAN`, `HSCAN`, `SSCAN` and `ZSCAN` return every item exactly once; cursors are server-side positions that
   any connection can use.
 - `KEYS`, `SCAN`, `IDX.QUERY`, `IDX.COUNT`, `IDX.GET`, `FT.SEARCH` and `CDC.READ` return only the keys the ACL
@@ -493,7 +504,7 @@ Users, per-command and per-key permissions, and the refusal log. See [Security](
   `LINSERT`, `LPOS`, `SPOP`, `SRANDMEMBER` and `HRANDFIELD` are O(N) or O(rank) where Redis is often
   O(log N) or O(1). Collection reads and writes of small collections are served from the object cache.
 - `DEL`, `UNLINK`, `EXPIRE` and `SET` over a collection are O(1), whatever its size.
-- `FLUSHALL`, `FLUSHDB` and `SAVE` always run synchronously. A backup is a directory (a RocksDB checkpoint),
+- `FLUSHALL`, `FLUSHDB` and `SAVE` always run synchronously; `RANDOMKEY` is not uniform. A backup is a directory (a RocksDB checkpoint),
   not a `dump.rdb` file.
 - `COMMAND`, `COMMAND DOCS` and `COMMAND INFO` return no documentation; `HELLO` always reports `role master`.
 - `INFO server` (`redis_version`) and `HELLO` (`version`) report 7.2.0, for clients that check the Redis
@@ -513,12 +524,11 @@ Any command not listed on this page replies `ERR unknown command`. Notable ones:
 |---|---|
 | Scripting and functions | `FUNCTION DUMP`, `FUNCTION RESTORE`, `SCRIPT DEBUG` |
 | Pub/Sub | Keyspace notifications (`notify-keyspace-events`) |
-| Sorted sets | `ZUNIONSTORE`, `ZINTERSTORE`, `ZDIFFSTORE`, `ZUNION`, `ZINTER`, `ZDIFF`, `ZINTERCARD`, `ZRANDMEMBER`, `ZRANGESTORE` |
 | Hashes | Field expiration (`HEXPIRE`, `HPEXPIRE`, `HTTL`, `HPERSIST`...), `HGETDEL`, `HGETEX`, `HSETEX` |
-| Strings | `LCS`, bitmaps (`SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITOP`, `BITFIELD`) |
+| Strings | Bitmaps (`SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITOP`, `BITFIELD`) |
 | Other types | Streams (`XADD`, `XREAD`...), HyperLogLog (`PFADD`, `PFCOUNT`, `PFMERGE`), geospatial (`GEOADD`, `GEOSEARCH`...) |
-| Keyspace | `COPY`, `MOVE`, `SWAPDB`, `RANDOMKEY`, `DUMP`, `RESTORE`, `MIGRATE`, `SORT`, `SORT_RO` |
-| Server | `LATENCY`, `MEMORY STATS`/`DOCTOR`, `DEBUG`, `BGREWRITEAOF`, `RESET`, `WAITAOF`, `MODULE`, `CLUSTER`, `READONLY`, `READWRITE`, `SYNC`, `PSYNC` |
+| Keyspace | `MOVE`, `SWAPDB`, `DUMP`, `RESTORE`, `MIGRATE`, `SORT`, `SORT_RO` |
+| Server | `LATENCY`, `MEMORY STATS`/`DOCTOR`, `DEBUG`, `BGREWRITEAOF`, `WAITAOF`, `MODULE`, `CLUSTER`, `READONLY`, `READWRITE`, `SYNC`, `PSYNC` |
 | CLIENT | `CLIENT PAUSE`, `CLIENT UNPAUSE`, `CLIENT TRACKING`, `CLIENT CACHING`, `CLIENT HELP` |
 | ACL | `ACL SAVE`, `ACL LOAD`, `ACL GENPASS`, `ACL DRYRUN`, `ACL HELP`, and selectors |
 | JSON and search | `JSON.RESP`, `JSON.DEBUG`, `FT.AGGREGATE`, `FT.ALTER`, `FT.EXPLAIN`, `FT.ALIASADD` and the other alias commands |

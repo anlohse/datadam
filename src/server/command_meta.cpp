@@ -33,6 +33,9 @@ constexpr KeyRange kReadWrite1to2{1, 2, 1, kKeyRead | kKeyWrite};
 constexpr KeyRange kReadWriteBeforeLast{1, -2, 1, kKeyRead | kKeyWrite};  // key ... timeout (BLPOP)
 constexpr KeyRange kReadWriteNumkeys1{2, 0, 1, kKeyRead | kKeyWrite, 1};    // numkeys at 1, keys from 2 (LMPOP)
 constexpr KeyRange kReadWriteNumkeys2{3, 0, 1, kKeyRead | kKeyWrite, 2};    // numkeys at 2, keys from 3 (BLMPOP)
+constexpr KeyRange kRead1to2{1, 2, 1, kKeyRead};                          // LCS
+constexpr KeyRange kWrite2{2, 2, 1, kKeyWrite};                            // COPY's destination
+constexpr KeyRange kReadNumkeys2{3, 0, 1, kKeyRead, 2};                    // ZUNIONSTORE dst numkeys key...
 constexpr KeyRange kScriptKeys{3, 0, 1, kKeyRead | kKeyWrite, 2};  // EVAL script numkeys key...
 constexpr KeyRange kScriptReadKeys{3, 0, 1, kKeyRead, 2};         // EVAL_RO
 
@@ -55,6 +58,7 @@ const Entry kEntries[] = {
     {"acl", {ADMIN | SLOW | DANGER, {kNone, kNone}}},
     {"info", {SLOW | DANGER, {kNone, kNone}}},
     {"time", {FAST, {kNone, kNone}}},
+    {"reset", {CONN | FAST, {kNone, kNone}}},
     {"dbsize", {KS | R | FAST, {kNone, kNone}}},
     {"flushdb", {KS | W | SLOW | DANGER, {kNone, kNone}}},
     {"flushall", {KS | W | SLOW | DANGER, {kNone, kNone}}},
@@ -73,6 +77,7 @@ const Entry kEntries[] = {
     {"cache", {ADMIN | SLOW, {kNone, kNone}}},
     {"keys", {KS | R | SLOW | DANGER, {kNone, kNone}}},
     {"scan", {KS | R | SLOW, {kNone, kNone}}},
+    {"randomkey", {KS | R | SLOW, {kNone, kNone}}},
     // transactions
     {"multi", {FAST | TX, {kNone, kNone}}},
     {"exec", {SLOW | TX, {kNone, kNone}}},
@@ -113,6 +118,7 @@ const Entry kEntries[] = {
     {"append", {W | STR | FAST, {kWrite1, kNone}}},
     {"strlen", {R | STR | FAST, {kRead1, kNone}}},
     {"getrange", {R | STR | SLOW, {kRead1, kNone}}},
+    {"lcs", {R | STR | SLOW, {kRead1to2, kNone}}},
     {"substr", {R | STR | SLOW, {kRead1, kNone}}},
     {"setrange", {W | STR | SLOW, {kWrite1, kNone}}},
     {"incr", {W | STR | FAST, {kReadWrite1, kNone}}},
@@ -136,6 +142,7 @@ const Entry kEntries[] = {
     {"persist", {KS | W | FAST, {kWrite1, kNone}}},
     {"rename", {KS | W | SLOW, {kReadWrite1to2, kNone}}},
     {"renamenx", {KS | W | FAST, {kReadWrite1to2, kNone}}},
+    {"copy", {KS | W | SLOW, {kRead1, kWrite2}}},
     // hash
     {"hset", {W | HASH | FAST, {kWrite1, kNone}}},
     {"hreplace", {W | HASH | SLOW, {kWrite1, kNone}}},
@@ -199,6 +206,15 @@ const Entry kEntries[] = {
     {"zrangebylex", {R | ZSET | SLOW, {kRead1, kNone}}},
     {"zrevrangebylex", {R | ZSET | SLOW, {kRead1, kNone}}},
     {"zscan", {R | ZSET | SLOW, {kRead1, kNone}}},
+    {"zrandmember", {R | ZSET | SLOW, {kRead1, kNone}}},
+    {"zunion", {R | ZSET | SLOW, {kReadNumkeys, kNone}}},
+    {"zinter", {R | ZSET | SLOW, {kReadNumkeys, kNone}}},
+    {"zdiff", {R | ZSET | SLOW, {kReadNumkeys, kNone}}},
+    {"zintercard", {R | ZSET | SLOW, {kReadNumkeys, kNone}}},
+    {"zunionstore", {W | ZSET | SLOW, {kWrite1, kReadNumkeys2}}},
+    {"zinterstore", {W | ZSET | SLOW, {kWrite1, kReadNumkeys2}}},
+    {"zdiffstore", {W | ZSET | SLOW, {kWrite1, kReadNumkeys2}}},
+    {"zrangestore", {W | ZSET | SLOW, {kWrite1, kRead2}}},
     // list
     {"lpush", {W | LIST | FAST, {kWrite1, kNone}}},
     {"rpush", {W | LIST | FAST, {kWrite1, kNone}}},

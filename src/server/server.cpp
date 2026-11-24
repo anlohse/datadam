@@ -710,7 +710,14 @@ asio::awaitable<void> Server::serve_requests(Stream& socket, ClientState& client
             // A plain read whose key is not cached gives the thread back
             // instead of reading the disk on it (retry_later, below).
             client.defer_blocked_reads = defer;
+            size_t reply_at = out.size();
             execute_redis_command(ctx_, client, args, reply);
+            if (!client.retry_later && (client.reply_off || client.reply_skip > 0)) {
+              // CLIENT REPLY OFF / SKIP. What a command handed to the pub/sub
+              // output itself (SUBSCRIBE's confirmations) is already gone.
+              if (out.size() > reply_at) out.resize(reply_at);
+              if (client.reply_skip > 0) --client.reply_skip;
+            }
             if (client.start_replication) {  // REPLSYNC: this connection is a replica's stream now
               if (client.entry) client.entry->replica = true;
               replicate = true;
